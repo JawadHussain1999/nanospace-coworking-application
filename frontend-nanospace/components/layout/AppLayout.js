@@ -20,7 +20,7 @@ export default function AppLayout({ children }) {
         />
         <div className="page-content">{children}</div>
         <footer className="app-footer">
-          <span className="app-footer-copy">© 2026 NanoSpace Co-working</span>
+          <span className="app-footer-copy">© 2026 NanoSpace Co-working · Version 1.0</span>
           <span className="app-footer-credit">
             <span className="footer-tagline">Made for better workdays</span>
             <span className="footer-sep">•</span>
