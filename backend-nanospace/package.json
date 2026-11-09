@@ -1,0 +1,36 @@
+{
+  "name": "nanospace-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NanoSpace coworking management API using Express and PostgreSQL",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "db:setup": "node src/db/setup.js",
+    "seed:admin": "node src/db/seedAdmin.js",
+    "seed:demo": "node src/db/seedDemo.js",
+    "seed:simple": "node src/db/seedSimpleUsers.js",
+    "seed:pending": "node src/db/seedPendingData.js",
+    "seed:all": "node src/db/setup.js && node src/db/seedAdmin.js && node src/db/seedDemo.js && node src/db/seedSimpleUsers.js && node src/db/seedPendingData.js && node src/db/seedJawadAdmin.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.5.0",
+    "nodemailer": "^10.2.1",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

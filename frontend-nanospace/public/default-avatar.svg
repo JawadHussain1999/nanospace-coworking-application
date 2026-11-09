@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="nsAvatarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0e7ff" />
+      <stop offset="100%" stop-color="#cbd5e1" />
+    </linearGradient>
+    <linearGradient id="nsBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64748b" />
+      <stop offset="100%" stop-color="#475569" />
+    </linearGradient>
+    <filter id="nsShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12" />
+    </filter>
+  </defs>
+  <!-- Background Circle -->
+  <rect width="128" height="128" rx="64" fill="url(#nsAvatarGrad)" />
+  <!-- Inner Ring Border -->
+  <circle cx="64" cy="64" r="62.5" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-opacity="0.3" />
+  <!-- Head Silhouette -->
+  <circle cx="64" cy="46" r="22" fill="url(#nsBodyGrad)" filter="url(#nsShadow)" />
+  <!-- Torso / Shoulders Arc -->
+  <path d="M22 108 C 22 84, 40 68, 64 68 C 88 68, 106 84, 106 108 Z" fill="url(#nsBodyGrad)" filter="url(#nsShadow)" />
+</svg>
