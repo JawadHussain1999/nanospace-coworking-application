@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Alert, Badge, Button, Card, CardBody, Col, FormGroup, Input, Label, Row } from 'reactstrap';
 import { FiDownload, FiFileText, FiMail, FiPlus, FiSearch, FiTrash2, FiUserCheck } from 'react-icons/fi';
+import { SiWhatsapp } from 'react-icons/si';
 import { useDispatch, useSelector } from 'react-redux';
 import { demoCustomers } from '../../data/inventory';
 import { getQuotationBranchDetails, getQuotationNumberPrefix } from '../../data/quotationBranchDetails';
@@ -114,6 +115,7 @@ export default function QuotationBuilder({ user, onSaved }) {
   const [apiBusy, setApiBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
+  const [whatsappBusy, setWhatsappBusy] = useState(false);
   const [savedQuoteNumber, setSavedQuoteNumber] = useState(null);
 
   const customers = isApiEnabled ? apiCustomers : demoCustomers;
@@ -233,16 +235,16 @@ export default function QuotationBuilder({ user, onSaved }) {
   const generatePdf = async () => {
     if (!customer) {
       setNotice('Please select a customer before generating the quotation.');
-      return;
+      return null;
     }
     if (!lines.length) {
       setNotice('Select at least one inventory item.');
-      return;
+      return null;
     }
     setPdfBusy(true);
     try {
       const assignedNumber = quotationSaved ? quoteNumber : await saveDraft();
-      if (!assignedNumber) return;
+      if (!assignedNumber) return null;
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       const formatAmount = (value) => new Intl.NumberFormat('en-IN', {
@@ -482,12 +484,93 @@ export default function QuotationBuilder({ user, onSaved }) {
       doc.save(`${assignedNumber}.pdf`);
       setNotice(`Quotation ${assignedNumber} PDF generated successfully.`);
       showSuccess(`Quotation ${assignedNumber} PDF generated successfully.`);
+      return assignedNumber;
     } catch (error) {
       console.error('Could not generate quotation PDF:', error);
       setNotice('Could not generate the quotation PDF.');
       showError('Could not generate quotation PDF.');
+      return null;
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  const whatsappQuotation = async () => {
+    if (!customer) {
+      const message = 'Select a customer before sharing the quotation.';
+      setNotice(message);
+      showError(message);
+      return;
+    }
+    if (!customer.phone) {
+      const message = 'Add a phone number to the selected customer before sending the quotation via WhatsApp.';
+      setNotice(message);
+      showError(message);
+      return;
+    }
+    if (!lines.length) {
+      const message = 'Select at least one inventory item before sharing the quotation.';
+      setNotice(message);
+      showError(message);
+      return;
+    }
+    let phone = String(customer.phone || '').replace(/\D/g, '');
+    if (phone.startsWith('00')) phone = phone.slice(2);
+    if (phone.length === 10) phone = `91${phone}`;
+    else if (phone.length === 11 && phone.startsWith('0')) phone = `91${phone.slice(1)}`;
+    if (phone.length < 8 || phone.length > 15) {
+      const message = 'Add a valid customer phone number, including the country code, to share via WhatsApp.';
+      setNotice(message);
+      showError(message);
+      return;
+    }
+
+    const whatsappWindow = window.open('about:blank', '_blank');
+    if (!whatsappWindow) {
+      const message = 'Allow pop-ups to open WhatsApp and share the quotation.';
+      setNotice(message);
+      showError(message);
+      return;
+    }
+    whatsappWindow.opener = null;
+    setWhatsappBusy(true);
+    try {
+      const assignedNumber = await generatePdf();
+      if (!assignedNumber) {
+        whatsappWindow.close();
+        return;
+      }
+      const itemSummary = lines
+        .map((item) => `• ${item.name} × ${item.quantity}: ${money(item.lineTotal)}`)
+        .join('\n');
+      const formattedValidity = validUntil
+        ? new Date(`${validUntil}T00:00:00`).toLocaleDateString('en-IN')
+        : 'As agreed';
+      const message = [
+        `Hello ${customer.name || 'there'},`,
+        '',
+        'Please find the NanoSpace quotation attached.',
+        `Quotation: ${assignedNumber}`,
+        `Branch: ${selectedBranchDetails.name}`,
+        `Items:\n${itemSummary}`,
+        `Total: ${money(total)}`,
+        `Valid until: ${formattedValidity}`,
+        '',
+        'Please review and let us know if you have any questions.',
+        'NanoSpace Co-Working',
+      ].join('\n');
+      whatsappWindow.location.href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+      const noticeMessage = `Quotation PDF downloaded and WhatsApp opened for ${customer.name}. Attach the downloaded PDF before sending.`;
+      setNotice(noticeMessage);
+      showSuccess(noticeMessage);
+    } catch (error) {
+      whatsappWindow.close();
+      console.error('Could not prepare quotation for WhatsApp:', error);
+      const message = 'Could not prepare the quotation for WhatsApp.';
+      setNotice(message);
+      showError(message);
+    } finally {
+      setWhatsappBusy(false);
     }
   };
 
@@ -568,6 +651,7 @@ export default function QuotationBuilder({ user, onSaved }) {
                     <Input type="select" value={customerId} onChange={(event) => {
                       if (event.target.value !== customerId) invalidateSavedQuotation();
                       setCustomerId(event.target.value);
+                      setWhatsappOptInConfirmed(false);
                       const selectedCustomer = customers.find((entry) => (entry.id || entry._id || entry.email) === event.target.value);
                       if (selectedCustomer && user.role === 'super_admin' && selectedCustomer.branch) setBranch(selectedCustomer.branch);
                     }}>
@@ -690,9 +774,15 @@ export default function QuotationBuilder({ user, onSaved }) {
               <Button color="primary" outline block className="mt-2" onClick={generatePdf} disabled={apiBusy || pdfBusy}>
                 <FiDownload className="me-2" />{pdfBusy ? 'Generating…' : 'Generate quotation PDF'}
               </Button>
-              <Button color="light" block className="mt-2" onClick={emailQuotation} disabled={apiBusy || emailBusy || !customer?.email || !lines.length}>
+              <Button color="light" block className="mt-2" onClick={emailQuotation} disabled={apiBusy || emailBusy || whatsappBusy || !customer?.email || !lines.length}>
                 <FiMail className="me-2" />{emailBusy ? 'Sending…' : 'Email to customer'}
               </Button>
+              <Button color="success" block className="mt-2" onClick={whatsappQuotation} disabled={apiBusy || pdfBusy || emailBusy || whatsappBusy || !customer?.phone || !lines.length}>
+                <SiWhatsapp className="me-2" />{whatsappBusy ? 'Preparing…' : 'Share on WhatsApp'}
+              </Button>
+              <small className="text-muted d-block mt-2">
+                WhatsApp opens with a prepared message and downloads the PDF. Attach the PDF in WhatsApp before sending.
+              </small>
               <div className="pdf-note">Company branding, customer details, GST breakdown, amount in words and all terms appear in the PDF.</div>
             </CardBody>
           </Card>

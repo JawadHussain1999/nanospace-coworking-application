@@ -13,6 +13,9 @@ const FLOOR_MIN_X = 36;
 const FLOOR_MIN_Y = 86;
 const FLOOR_MAX_X = 1284;
 const FLOOR_MAX_Y = 744;
+const isExclusiveBookingSpace = (space) => /CONFERENCE|MEETING|BOARDROOM/i.test(String(space.type || ''));
+const requiredSeatsForSpace = (space, requestedSeatCount) =>
+  isExclusiveBookingSpace(space) ? Number(space.capacity) || 1 : requestedSeatCount;
 
 const isSpaceInBookingCategory = (space, category) => {
   if (!category) return true;
@@ -50,6 +53,8 @@ export default function WorkspaceFloorMap({
   bookingCategory,
   onChangeBookingType,
   availabilityDate,
+  availabilityStartsAt,
+  availabilityEndsAt,
   bookings = [],
   bookingMode = false,
   availabilityReady = true,
@@ -303,9 +308,17 @@ export default function WorkspaceFloorMap({
           );
           const bookingEndAt = Date.parse(booking.endsAt || booking.ends_at || '') ||
             bookingStartAt + (Number(booking.duration) || 1) * 86400000;
-              const selectedDateStartAt = Date.parse(`${activeDate}T00:00:00Z`);
-          return bookingStartAt < selectedDateStartAt + 86400000 && bookingEndAt > selectedDateStartAt
-            ? total + Math.max(1, Number(booking.seatCount || booking.seat_count) || 1)
+              const selectedDateStartAt = Date.parse(availabilityStartsAt || `${activeDate}T00:00:00Z`);
+              const selectedDateEndAt = Date.parse(availabilityEndsAt || `${activeDate}T00:00:00Z`) ||
+                selectedDateStartAt + 86400000;
+              const bookingPlanSeatCount = Number(
+                String(`${booking.itemName || ''} ${booking.item_name || ''} ${booking.planName || ''}`)
+                  .match(/\b(\d+)\s*[- ]?\s*seater\b/i)?.[1]
+              ) || 0;
+              return bookingStartAt < selectedDateEndAt && bookingEndAt > selectedDateStartAt
+                ? total + (isExclusiveBookingSpace({ type: workspace.workspace_type || workspace.workspaceType || workspace.type })
+                  ? capacity
+                  : Math.max(bookingPlanSeatCount, Number(booking.seatCount || booking.seat_count) || 1))
             : total;
         }, 0)
         : 0;
@@ -341,7 +354,7 @@ export default function WorkspaceFloorMap({
         layoutHeight: Number(workspace.layout_height ?? workspace.layoutHeight ?? position.height),
       };
     });
-  }, [activeAvailabilitySpaces, activeDate, adminLayout, availableSeatIds, bookingMode, bookings, branch, floor, layoutOverrides, workspaceRecords]);
+  }, [activeAvailabilitySpaces, activeDate, adminLayout, availabilityEndsAt, availabilityStartsAt, availableSeatIds, bookingMode, bookings, branch, floor, layoutOverrides, workspaceRecords]);
 
   const bookingSpaces = bookingMode
     ? spaces.filter((space) => isSpaceInBookingCategory(space, bookingCategory))
@@ -374,7 +387,10 @@ export default function WorkspaceFloorMap({
 
   const selectSpace = (space) => {
     if (layoutEditable) return;
-    if (bookingMode && (space.status !== 'Available' || space.availableCapacity < requestedSeatCount)) return;
+    if (bookingMode && (
+      space.status !== 'Available' ||
+      space.availableCapacity < requiredSeatsForSpace(space, requestedSeatCount)
+    )) return;
     setLocalSelectedSpaceId(String(space.dbId || space.id));
     onSelectSeat?.({
       ...space,
@@ -1054,7 +1070,7 @@ export default function WorkspaceFloorMap({
                     className="konva-space-book-button"
                     disabled={layoutEditable || (bookingMode && (
                       activeSelectedSpace.status !== 'Available' ||
-                      activeSelectedSpace.availableCapacity < requestedSeatCount
+                      activeSelectedSpace.availableCapacity < requiredSeatsForSpace(activeSelectedSpace, requestedSeatCount)
                     ))}
                     onClick={() => showSpaceDetails(activeSelectedSpace)}
                   >
@@ -1095,13 +1111,14 @@ export default function WorkspaceFloorMap({
               <span>Tap a space on the plan or choose it here. Options show seats free.</span>
             </div>
             <div className="konva-booking-space-list-counts">
-              <span className="available">{bookingSpaces.filter((space) => space.status === 'Available' && Number(space.availableCapacity || 0) >= requestedSeatCount).length} available</span>
-              <span className="unavailable">{bookingSpaces.filter((space) => space.status !== 'Available' || Number(space.availableCapacity || 0) < requestedSeatCount).length} unavailable</span>
+              <span className="available">{bookingSpaces.filter((space) => space.status === 'Available' && Number(space.availableCapacity || 0) >= requiredSeatsForSpace(space, requestedSeatCount)).length} available</span>
+              <span className="unavailable">{bookingSpaces.filter((space) => space.status !== 'Available' || Number(space.availableCapacity || 0) < requiredSeatsForSpace(space, requestedSeatCount)).length} unavailable</span>
             </div>
           </div>
           <div className="konva-booking-space-list-grid konva-booking-space-tabs" role="group" aria-label="Available cabins and spaces">
             {bookingSpaces.map((space) => {
-              const selectable = space.status === 'Available' && Number(space.availableCapacity || 0) >= requestedSeatCount;
+              const requiredSeats = requiredSeatsForSpace(space, requestedSeatCount);
+              const selectable = space.status === 'Available' && Number(space.availableCapacity || 0) >= requiredSeats;
               const selected = [space.id, space.dbId, space.code].some((id) => String(id || '') === String(selectedSeat || localSelectedSpaceId || ''));
               return (
                 <button
@@ -1114,7 +1131,10 @@ export default function WorkspaceFloorMap({
                 >
                   <span className="konva-booking-space-option-copy">
                     <strong>{space.code || space.name}</strong>
-                    <small>{space.name !== space.code ? space.name : space.type.replace(/_/g, ' ')} · {requestedSeatCount} requested</small>
+                    <small>
+                      {space.name !== space.code ? space.name : space.type.replace(/_/g, ' ')}
+                      {' · '}{isExclusiveBookingSpace(space) ? 'entire room' : `${requestedSeatCount} requested`}
+                    </small>
                   </span>
                   <span className="konva-booking-space-option-status">
                     {selectable ? `${space.availableCapacity} free` : space.status !== 'Available' ? space.status : `Only ${space.availableCapacity} free`}

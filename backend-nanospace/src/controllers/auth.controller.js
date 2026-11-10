@@ -331,8 +331,19 @@ router.post('/send-otp', asyncHandler(async (req, res) => {
     attempts: 0,
   });
 
-  // Send Email
-  await sendOtpEmail(email, otpCode, user.full_name);
+  // Do not report a successful OTP request unless a real email was accepted.
+  const emailResult = await sendOtpEmail(email, otpCode, user.full_name);
+  if (!emailResult.success || (emailResult.isMock && process.env.NODE_ENV === 'production')) {
+    memOtpStore.delete(email);
+    try {
+      await pool.query('DELETE FROM email_otps WHERE LOWER(email) = LOWER($1)', [email]);
+    } catch (cleanupError) {
+      console.error('Could not remove an undeliverable OTP record:', cleanupError.message);
+    }
+    return res.status(502).json({
+      error: 'Verification email could not be delivered. Check the production SMTP configuration and try again.',
+    });
+  }
 
   const isDev = process.env.NODE_ENV !== 'production';
 

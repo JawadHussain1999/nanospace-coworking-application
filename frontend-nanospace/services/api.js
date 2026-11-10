@@ -299,8 +299,15 @@ export const api = {
         seatCount: Math.max(1, Math.round(Number(body.seatCount || body.seat_count) || 1)),
         unitPrice: body.unitPrice,
         total: body.total,
+        advanceAmount: body.advanceAmount,
+        paymentMethod: body.paymentMethod || undefined,
+        advancePaymentStatus: body.advancePaymentStatus || undefined,
         status: (body.status || 'CONFIRMED').toUpperCase(),
-        bookingSource: (body.source || body.bookingSource || 'ONLINE').toUpperCase().replace(/-/g, '_'),
+        bookingSource: body.isExistingRecord
+          ? 'IN_PERSON'
+          : (body.source || body.bookingSource || 'ONLINE').toUpperCase().replace(/-/g, '_'),
+        isExistingRecord: body.isExistingRecord === true,
+        bookingCategory: body.bookingCategory || undefined,
         notes: body.notes || undefined,
       };
       return post(endpoints.bookings.create, payload);

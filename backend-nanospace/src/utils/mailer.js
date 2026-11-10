@@ -54,11 +54,6 @@ function getTransporter() {
  * Send 6-digit OTP login verification email
  */
 async function sendOtpEmail(email, otp, userName = 'NanoSpace Member') {
-  console.log(`\n========================================`);
-  console.log(`🔐 [NanoSpace AUTH] OTP Code for ${email}: ${otp}`);
-  console.log(`   Valid for 10 minutes.`);
-  console.log(`========================================\n`);
-
   const user = (process.env.SMTP_USER || '').trim();
   const fromAddress = process.env.EMAIL_FROM || (user ? `"NanoSpace Workspace" <${user}>` : '"NanoSpace Platform" <no-reply@nanospace.in>');
   const subject = `Your NanoSpace verification code: ${otp}`;
@@ -120,6 +115,13 @@ async function sendOtpEmail(email, otp, userName = 'NanoSpace Member') {
 
   try {
     const transport = getTransporter();
+    if (transport.isMock && process.env.NODE_ENV === 'production') {
+      return {
+        success: false,
+        isMock: true,
+        error: 'SMTP is not configured for production email delivery.',
+      };
+    }
     const result = await transport.sendMail({
       from: fromAddress,
       to: email,
@@ -128,16 +130,14 @@ async function sendOtpEmail(email, otp, userName = 'NanoSpace Member') {
       text: `Hello ${userName},\n\nYour NanoSpace verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.\n\nCrafted by Jawad Hussain.`,
     });
     if (result.isMock) {
-      console.log(`[NanoSpace Mailer] Simulated send to ${email} complete.`);
+      console.log('[NanoSpace Mailer] Simulated OTP email delivery complete.');
     } else {
-      console.log(`[NanoSpace Mailer] ✅ Email successfully sent to ${email} (MessageId: ${result.messageId})`);
+      console.log(`[NanoSpace Mailer] OTP email accepted by SMTP (MessageId: ${result.messageId})`);
     }
     return { success: true, isMock: Boolean(result.isMock) };
   } catch (error) {
-    console.error(`\n❌ [NanoSpace Mailer] Failed to deliver email to ${email} via SMTP:`);
-    console.error(`   Error: ${error.message}`);
-    console.error(`   Tip: If using Gmail, make sure you generated an App Password at: https://myaccount.google.com/apppasswords\n`);
-    return { success: false, error: error.message };
+    console.error('[NanoSpace Mailer] OTP email delivery failed:', error.message);
+    return { success: false, error: 'SMTP could not deliver the verification email.' };
   }
 }
 

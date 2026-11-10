@@ -12,6 +12,30 @@ import { api, getApiCollection, getApiErrorMessage, getApiPayload, isApiEnabled,
 
 const money = n => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(n) || 0);
 const today = new Date().toISOString().slice(0, 10);
+const isExclusiveWorkspace = (space) => /CONFERENCE|MEETING|BOARDROOM/i.test(String(space?.type || ''));
+const getPlanSeatCount = (plan) => {
+  const match = String(`${plan?.name || ''} ${plan?.description || ''}`).match(/\b(\d+)\s*[- ]?\s*seater\b/i);
+  return match ? Number(match[1]) : 0;
+};
+const getBookingInterval = (date, time, durationMs) => {
+  if (!date || !time || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  const start = new Date(`${date}T${time}:00`);
+  if (!Number.isFinite(start.getTime())) return null;
+  return {
+    startsAt: start.toISOString(),
+    endsAt: new Date(start.getTime() + durationMs).toISOString(),
+  };
+};
+const formatBookingWindow = (interval, isAllDay) => {
+  if (!interval) return '';
+  const start = new Date(interval.startsAt);
+  const end = new Date(interval.endsAt);
+  if (isAllDay) {
+    const lastBookedDay = new Date(end.getTime() - 1);
+    return `${start.toLocaleDateString()} – ${lastBookedDay.toLocaleDateString()} (full day)`;
+  }
+  return `${start.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} – ${end.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+};
 
 function loadRazorpayCheckout() {
   if (typeof window !== 'undefined' && window.Razorpay) return Promise.resolve();
@@ -68,6 +92,7 @@ export default function BookingExperience({ user }) {
   const [activeStep, setActiveStep] = useState(1);
   const [showAvailability, setShowAvailability] = useState(false);
   const [seat, setSeat] = useState(null);
+  const [startTime, setStartTime] = useState('09:00');
   const [completedBooking, setCompletedBooking] = useState(null);
   const [demoCheckout, setDemoCheckout] = useState(null);
   const [quantity, setQuantity] = useState(1);
@@ -206,6 +231,8 @@ export default function BookingExperience({ user }) {
   const selectedBookingCategory = activeCategory.key || category;
   const items = activeCategory.items || [];
   const item = items.find(i => i.id === values.itemId) || items[0] || bookableInventory[0];
+  const planSeatCount = getPlanSeatCount(item);
+  const bookingSeatCount = planSeatCount || seatCount;
 
   useEffect(() => {
     if (item && values.itemId !== item.id) setValue('itemId', item.id, { shouldValidate: true });
@@ -221,6 +248,20 @@ export default function BookingExperience({ user }) {
   const bookingDuration = item?.unit === 'day'
     ? Math.max(1, Number(quantity) || 1)
     : item?.unit === 'month' ? Math.max(1, Number(quantity) || 1) * 30 : 1;
+  const sessionHours = Number(String(item?.description || '').match(/(\d+(?:\.\d+)?)\s*hours?/i)?.[1]) || 4;
+  const bookingDurationMs = item?.unit === 'session'
+    ? Math.max(1, Number(quantity) || 1) * sessionHours * 60 * 60 * 1000
+    : item?.unit === 'hour'
+      ? Math.max(1, Number(quantity) || 1) * 60 * 60 * 1000
+      : bookingDuration * 24 * 60 * 60 * 1000;
+  const isHourlyBooking = item?.unit === 'session' || item?.unit === 'hour';
+  const allDayBookingLabel = item?.unit === 'month'
+    ? `${quantity} month${quantity === 1 ? '' : 's'}`
+    : item?.unit === 'day'
+      ? `${quantity} full day${quantity === 1 ? '' : 's'}`
+      : 'Full day';
+  const bookingInterval = getBookingInterval(values.date, isHourlyBooking ? startTime : '00:00', bookingDurationMs);
+  const availabilityKey = `${values.branch}|${values.date}|${bookingInterval?.startsAt || ''}|${bookingInterval?.endsAt || ''}`;
   const selectedCustomer = branchCustomers.find(c => c.id === values.customerId);
   const branchOptions = isApiEnabled && apiBranches.length > 0 ? apiBranches : Object.keys(branchFloors);
   const continueFromService = async () => {
@@ -262,10 +303,17 @@ export default function BookingExperience({ user }) {
     const scheduleIsValid = await trigger(['branch', 'date', 'itemId']);
     if (!scheduleIsValid) return;
     const schedule = getValues();
+    const interval = getBookingInterval(schedule.date, isHourlyBooking ? startTime : '00:00', bookingDurationMs);
+    if (!interval) {
+      const message = 'Choose a valid booking date and start time.';
+      setApiNotice(message);
+      showError(message);
+      return;
+    }
     setApiNotice('');
     setSeat(null);
     if (isApiEnabled) {
-      setApiAvailabilityContext(`${schedule.branch}|${schedule.date}`);
+      setApiAvailabilityContext(`${schedule.branch}|${schedule.date}|${interval.startsAt}|${interval.endsAt}`);
       setApiAvailabilityLoaded(false);
       setApiAvailableSeatIds([]);
       setApiAvailabilitySpaces([]);
@@ -274,6 +322,8 @@ export default function BookingExperience({ user }) {
         const response = getApiPayload(await api.bookings.availability({
           branch: schedule.branch,
           date: schedule.date,
+          startsAt: interval.startsAt,
+          endsAt: interval.endsAt,
           workspaceId: values.itemId,
         }));
         const availableSeats = Array.isArray(response)
@@ -379,6 +429,14 @@ export default function BookingExperience({ user }) {
     }
   };
   const submitBooking = async data => {
+    const interval = getBookingInterval(data.date, isHourlyBooking ? startTime : '00:00', bookingDurationMs);
+    if (!interval) {
+      const msg = 'Choose a valid booking date and start time.';
+      setApiNotice(msg);
+      showError(msg);
+      setActiveStep(2);
+      return;
+    }
     if (!seat) {
       const msg = 'Choose an available workspace before confirming this booking.';
       setApiNotice(msg);
@@ -392,8 +450,13 @@ export default function BookingExperience({ user }) {
       showError(msg);
       return;
     }
-    if (seat && Number(seat.availableCapacity) < seatCount) {
-      const msg = `Only ${Number(seat.availableCapacity) || 0} seat${Number(seat.availableCapacity) === 1 ? '' : 's'} remain in "${seat.code || seat.name || seat.id}". Choose another workspace or reduce the seat count.`;
+    const seatsToBook = isExclusiveWorkspace(seat)
+      ? Number(seat.capacity) || 1
+      : bookingSeatCount;
+    if (seat && Number(seat.availableCapacity) < seatsToBook) {
+      const msg = isExclusiveWorkspace(seat)
+        ? `The entire room "${seat.code || seat.name || seat.id}" is no longer available for this schedule.`
+        : `Only ${Number(seat.availableCapacity) || 0} seat${Number(seat.availableCapacity) === 1 ? '' : 's'} remain in "${seat.code || seat.name || seat.id}". Choose another workspace or reduce the seat count.`;
       setApiNotice(msg);
       showError(msg);
       setSeat(null);
@@ -419,7 +482,9 @@ export default function BookingExperience({ user }) {
       itemName: item.name,
       unitPrice: item.rate,
       quantity: Number(quantity) || 1,
-      seatCount,
+      seatCount: seatsToBook,
+      startsAt: interval.startsAt,
+      endsAt: interval.endsAt,
       bookingCategory: selectedBookingCategory,
       duration: bookingDuration,
       total,
@@ -568,8 +633,9 @@ export default function BookingExperience({ user }) {
           <div className="booking-confirmation-grid">
             <div><FiMapPin /><span>Location</span><strong>{completedBooking.branch || values.branch}</strong></div>
             <div><FiCalendar /><span>Booking date</span><strong>{completedBooking.date || values.date}</strong></div>
+            <div><FiClock /><span>Reserved time</span><strong>{formatBookingWindow(bookingInterval, !isHourlyBooking)}</strong></div>
             <div><FiBriefcase /><span>Workspace</span><strong>{completedBooking.seat || seat?.code || seat?.name || 'Assigned by front desk'}</strong></div>
-            <div><FiUsers /><span>Seats reserved</span><strong>{completedBooking.seatCount || seatCount}</strong></div>
+            <div><FiUsers /><span>Seats reserved</span><strong>{completedBooking.seat_count || completedBooking.seatCount || (isExclusiveWorkspace(seat) ? seat.capacity : bookingSeatCount)}</strong></div>
             <div><FiUsers /><span>Booked for</span><strong>{completedBooking.customerName || values.customerName}</strong></div>
             <div><FiCreditCard /><span>{completedBooking.paymentRecord?.status === 'PAID' ? 'Advance received' : 'Advance amount'}</span><strong>{money(completedBooking.advance_amount ?? completedBooking.advanceAmount ?? advanceAmount)}</strong></div>
             <div><FiCreditCard /><span>Balance due</span><strong>{money(Math.max(0, (completedBooking.total_amount ?? completedBooking.total ?? total) - (completedBooking.advance_amount ?? completedBooking.advanceAmount ?? advanceAmount)))}</strong></div>
@@ -608,7 +674,7 @@ export default function BookingExperience({ user }) {
               : isCustomer && isApiEnabled
                 ? 'Payment processed securely by Razorpay.'
                 : 'Payment can be collected or recorded separately.'}</span>
-            <Button color="primary" className="btn-primary-custom" onClick={() => { setCompletedBooking(null); setSeat(null); setQuantity(1); setSeatCount(1); setIncludeParking(false); setShowAvailability(false); setActiveStep(1); reset({ branch: defaultBranch, date: today, duration: '1', customerId: isCustomer ? user.customerId || user.id || '' : '', customerName: isCustomer ? user.name || '' : '', email: isCustomer ? user.email || '' : '', phone: isCustomer ? user.phone || '' : '', itemId: '', notes: '' }); setCategory('office'); }}>
+            <Button color="primary" className="btn-primary-custom" onClick={() => { setCompletedBooking(null);             setSeat(null); setStartTime('09:00'); setQuantity(1); setSeatCount(1); setIncludeParking(false); setShowAvailability(false); setActiveStep(1); reset({ branch: defaultBranch, date: today, duration: '1', customerId: isCustomer ? user.customerId || user.id || '' : '', customerName: isCustomer ? user.name || '' : '', email: isCustomer ? user.email || '' : '', phone: isCustomer ? user.phone || '' : '', itemId: '', notes: '' }); setCategory('office'); }}>
               Create another booking <FiArrowRight className="ms-2" />
             </Button>
           </div>
@@ -837,9 +903,39 @@ export default function BookingExperience({ user }) {
                         </FormGroup>
                       </Col>
                       <Col md="6">
+                        {isHourlyBooking ? (
+                          <FormGroup className="mb-0">
+                            <Label htmlFor="booking-start-time"><FiClock className="field-label-icon" /> Start time</Label>
+                            <Input
+                              id="booking-start-time"
+                              type="time"
+                              value={startTime}
+                              onChange={(event) => {
+                                setStartTime(event.target.value);
+                                resetScheduleSelection();
+                              }}
+                              required
+                            />
+                            <small className="text-muted d-block mt-2">
+                              {item.unit === 'session' ? `Each session reserves ${sessionHours} consecutive hours.` : 'Availability is checked for the selected number of hours.'}
+                            </small>
+                          </FormGroup>
+                        ) : planSeatCount > 0 ? (
+                          <div className="booking-visit-choice">
+                            <span className="booking-visit-choice-icon"><FiUsers /></span>
+                            <span><small>SEATS INCLUDED IN PLAN</small><strong>{planSeatCount} seats reserved</strong><em>This {planSeatCount}-seater plan reserves {planSeatCount} seats.</em></span>
+                          </div>
+                        ) : (
+                          <div className="booking-visit-choice">
+                            <span className="booking-visit-choice-icon"><FiClock /></span>
+                            <span><small>BOOKING PERIOD</small><strong>{allDayBookingLabel}</strong><em>The selected date range is reserved for the full day.</em></span>
+                          </div>
+                        )}
+                      </Col>
+                      <Col md="6">
                         <FormGroup className="mb-0">
                           <Label><FiUsers className="field-label-icon" />
-                            {item.unit === 'day' ? 'Number of days' : item.unit === 'month' ? 'Number of months' : 'Number of units'}
+                            {item.unit === 'day' ? 'Number of days' : item.unit === 'month' ? 'Number of months' : item.unit === 'session' ? 'Number of sessions' : item.unit === 'hour' ? 'Number of hours' : 'Number of units'}
                           </Label>
                           <Input
                             type="number"
@@ -855,21 +951,28 @@ export default function BookingExperience({ user }) {
                         </FormGroup>
                       </Col>
                       <Col md="6">
-                        <FormGroup className="mb-0">
-                          <Label htmlFor="booking-seat-count"><FiUsers className="field-label-icon" /> Number of seats</Label>
-                          <Input
-                            id="booking-seat-count"
-                            type="number"
-                            min="1"
-                            max="99"
-                            value={seatCount}
-                            onChange={(event) => {
-                              setSeatCount(Math.max(1, Math.min(99, Number(event.target.value) || 1)));
-                              resetScheduleSelection();
-                            }}
-                          />
-                          <small className="text-muted d-block mt-2">Only this many seats will be reserved inside the selected space.</small>
-                        </FormGroup>
+                        {selectedBookingCategory === 'meeting' ? (
+                          <div className="booking-visit-choice">
+                            <span className="booking-visit-choice-icon"><FiUsers /></span>
+                            <span><small>CONFERENCE ROOM BOOKING</small><strong>Entire room reserved</strong><em>All seats are reserved for the selected time window.</em></span>
+                          </div>
+                          ) : (
+                          <FormGroup className="mb-0">
+                            <Label htmlFor="booking-seat-count"><FiUsers className="field-label-icon" /> Number of seats</Label>
+                            <Input
+                              id="booking-seat-count"
+                              type="number"
+                              min="1"
+                              max="99"
+                              value={seatCount}
+                              onChange={(event) => {
+                                setSeatCount(Math.max(1, Math.min(99, Number(event.target.value) || 1)));
+                                resetScheduleSelection();
+                              }}
+                            />
+                            <small className="text-muted d-block mt-2">Only this many seats will be reserved inside the selected space.</small>
+                          </FormGroup>
+                        )}
                       </Col>
                       <Col md="6">
                         <div className="booking-visit-choice">
@@ -897,37 +1000,47 @@ export default function BookingExperience({ user }) {
                     <div>
                       <span className="booking-section-kicker">03 · YOUR WORKSPACE</span>
                       <h3>Choose a {activeCategory.label.toLowerCase()}</h3>
-                      <p>The full floor is shown. Choose an available {activeCategory.label.toLowerCase()} with at least {seatCount} free seat{seatCount === 1 ? '' : 's'} for {values.branch} on {values.date}.</p>
+                      <p>{selectedBookingCategory === 'meeting'
+                        ? `Choose an available conference room to reserve the entire room for ${values.branch} during ${formatBookingWindow(bookingInterval, !isHourlyBooking)}.`
+                        : `The full floor is shown. Choose an available ${activeCategory.label.toLowerCase()} with at least ${seatCount} free seat${seatCount === 1 ? '' : 's'} for ${values.branch} during ${formatBookingWindow(bookingInterval, !isHourlyBooking)}.`}</p>
                     </div>
                     <span className="booking-step-label">Step 3 of 4</span>
                   </div>
                   <WorkspaceFloorMap
-                    key={`${values.branch}-${values.date}`}
+                    key={`${values.branch}-${values.date}-${startTime}-${bookingInterval?.endsAt || ''}`}
                     initialBranch={values.branch}
                     branches={[values.branch]}
                     branchFloorCounts={apiBranchFloorCounts}
                     workspaceRecords={isApiEnabled ? apiWorkspaces : undefined}
                     selectedSeat={seat?.id}
                     availableSeatIds={isApiEnabled ? apiAvailableSeatIds : null}
-                    availabilitySpaces={isApiEnabled && apiAvailabilityContext === `${values.branch}|${values.date}` ? apiAvailabilitySpaces : null}
+                    availabilitySpaces={isApiEnabled && apiAvailabilityContext === availabilityKey ? apiAvailabilitySpaces : null}
                     availabilityReady={!isApiEnabled || (
-                      apiAvailabilityLoaded && apiAvailabilityContext === `${values.branch}|${values.date}`
+                      apiAvailabilityLoaded && apiAvailabilityContext === availabilityKey
                     )}
-                    requestedSeatCount={seatCount}
+                    requestedSeatCount={bookingSeatCount}
                     bookingCategory={selectedBookingCategory}
                     availabilityDate={values.date}
+                    availabilityStartsAt={bookingInterval?.startsAt}
+                    availabilityEndsAt={bookingInterval?.endsAt}
                     onChangeBookingType={() => resetScheduleSelection(1)}
                     bookings={isApiEnabled ? undefined : localBookings}
                     bookingMode
                     onSelectSeat={s => {
-                      if (s.status !== 'Available' || s.availableCapacity < seatCount) {
-                        const message = s.availableCapacity < seatCount
-                          ? `Only ${s.availableCapacity} seat${s.availableCapacity === 1 ? '' : 's'} remain in "${s.code || s.name || s.id}".`
+                      const requestedSeats = isExclusiveWorkspace(s)
+                        ? Number(s.capacity) || 1
+                        : bookingSeatCount;
+                      if (s.status !== 'Available' || s.availableCapacity < requestedSeats) {
+                        const message = isExclusiveWorkspace(s)
+                          ? `The entire room "${s.code || s.name || s.id}" is not available for this schedule.`
+                          : s.availableCapacity < requestedSeats
+                            ? `Only ${s.availableCapacity} seat${s.availableCapacity === 1 ? '' : 's'} remain in "${s.code || s.name || s.id}".`
                           : `"${s.code || s.name || s.id}" is ${String(s.status).toUpperCase()} and cannot be booked.`;
                         showError(message);
                         return;
                       }
                       setSeat(s);
+                      if (isExclusiveWorkspace(s)) setSeatCount(requestedSeats);
                       if (s.branch && canChooseBranch) setValue('branch', s.branch);
                     }}
                   />
@@ -1107,12 +1220,16 @@ export default function BookingExperience({ user }) {
                       <span className="spec-val">{values.date}</span>
                     </div>
                     <div className="spec-row">
+                      <span className="spec-label"><FiClock className="me-1 text-primary" /> Reserved time</span>
+                      <span className="spec-val">{formatBookingWindow(bookingInterval, !isHourlyBooking)}</span>
+                    </div>
+                    <div className="spec-row">
                       <span className="spec-label"><FiUsers className="me-1 text-primary" /> Booking length</span>
                       <span className="spec-val">{quantity} {item.unit === 'day' ? 'Day(s)' : item.unit === 'month' ? 'Month(s)' : item.unit === 'session' ? 'Session(s)' : 'Unit(s)'}</span>
                     </div>
                     <div className="spec-row">
                       <span className="spec-label"><FiUsers className="me-1 text-primary" /> Seats</span>
-                      <span className="spec-val">{seatCount}</span>
+                      <span className="spec-val">{seat && isExclusiveWorkspace(seat) ? seat.capacity : bookingSeatCount}</span>
                     </div>
                     <div className="spec-row">
                       <span className="spec-label"><FiCoffee className="me-1 text-primary" /> Seat selection</span>

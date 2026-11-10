@@ -4,7 +4,10 @@ const pool = require('../models/database.model');
 const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
 const { formatShortBookingId, resolveBookingId } = require('../utils/bookingHelper');
-const { calculateWorkspaceCapacity } = require('../utils/workspaceCapacity');
+const {
+  calculateWorkspaceCapacity,
+  getReservedSeatCount,
+} = require('../utils/workspaceCapacity');
 const { sendBookingNotificationEmail } = require('../utils/mailer');
 const {
   createRazorpayOrder,
@@ -22,8 +25,9 @@ const isValidDateOnly = (value) => {
 router.get('/calendar', ah(async (req, res) => {
   const u = req.user;
   const p = [];
-  let sql = `SELECT b.*, w.code AS workspace_code, w.name AS workspace_name, c.full_name AS customer_name,
-                    c.email AS customer_email, ii.name AS plan_name, b2.name AS branch_name
+  let sql = `SELECT b.*, w.code AS workspace_code, w.name AS workspace_name, w.workspace_type,
+                    c.full_name AS customer_name, c.email AS customer_email, c.company_name,
+                    c.phone AS customer_phone, ii.name AS plan_name, b2.name AS branch_name
              FROM bookings b
              JOIN workspaces w ON w.id = b.workspace_id
              JOIN customers c ON c.id = b.customer_id
@@ -75,7 +79,7 @@ router.get('/calendar', ah(async (req, res) => {
 }));
 
 router.get('/availability', ah(async (req, res) => {
-  const { branch, date, workspaceId } = req.query;
+  const { branch, date, workspaceId, startsAt, endsAt } = req.query;
   const u = req.user;
   let branchId = u.role === 'SUPER_ADMIN' ? null : u.branch_id;
   if (branch) {
@@ -91,15 +95,37 @@ router.get('/availability', ah(async (req, res) => {
   if (!isValidDateOnly(queryDate)) {
     return res.status(400).json({ error: 'Date must use the YYYY-MM-DD format.' });
   }
+  const hasExactSchedule = Boolean(startsAt || endsAt);
+  if (hasExactSchedule && (
+    !startsAt ||
+    !endsAt ||
+    !Number.isFinite(Date.parse(startsAt)) ||
+    !Number.isFinite(Date.parse(endsAt)) ||
+    Date.parse(endsAt) <= Date.parse(startsAt)
+  )) {
+    return res.status(400).json({ error: 'A valid booking start and end time are required.' });
+  }
   const currentDate = await pool.query('SELECT CURRENT_DATE::text AS today');
   const isHistoricalDate = queryDate < currentDate.rows[0].today;
+  const bookingWindowCondition = hasExactSchedule
+    ? `bookings.starts_at < $3::timestamptz AND bookings.ends_at > $2::timestamptz`
+    : `bookings.starts_at < ($2::date + INTERVAL '1 day') AND bookings.ends_at > $2::date`;
   const bookedWs = await pool.query(
-    `SELECT workspace_id, COALESCE(SUM(seat_count), 0)::int AS booked_seats FROM bookings
-     WHERE branch_id = $1 AND status IN ('CONFIRMED', 'REQUESTED')
-       AND starts_at < ($2::date + INTERVAL '1 day')
-       AND ends_at > $2::date
-     GROUP BY workspace_id`,
-    [branchId, queryDate]
+    `SELECT bookings.workspace_id,
+            COALESCE(SUM(CASE
+              WHEN workspace.workspace_type ~* '(CONFERENCE|MEETING|BOARDROOM)' THEN workspace.capacity
+              ELSE COALESCE(
+                substring(CONCAT(inventory.name, ' ', inventory.description) FROM '([0-9]+)[[:space:]-]*[Ss]eater')::int,
+                bookings.seat_count
+              )
+            END), 0)::int AS booked_seats
+     FROM bookings
+     JOIN workspaces workspace ON workspace.id = bookings.workspace_id
+     LEFT JOIN inventory_items inventory ON inventory.id = bookings.inventory_item_id
+     WHERE bookings.branch_id = $1 AND bookings.status IN ('CONFIRMED', 'REQUESTED')
+       AND ${bookingWindowCondition}
+     GROUP BY bookings.workspace_id`,
+    hasExactSchedule ? [branchId, startsAt, endsAt] : [branchId, queryDate]
   );
   const bookedSeatsByWorkspace = new Map(bookedWs.rows.map((row) => [
     row.workspace_id,
@@ -116,7 +142,8 @@ router.get('/availability', ah(async (req, res) => {
     workspace.capacity,
     bookedSeatsByWorkspace.get(workspace.id) || 0,
     workspace.status,
-    isHistoricalDate
+    isHistoricalDate,
+    hasExactSchedule
   );
   const availableSeats = allWs.rows
     .filter((workspace) => getWorkspaceAvailability(workspace).availableCapacity > 0 &&
@@ -162,8 +189,9 @@ router.get('/availability', ah(async (req, res) => {
 router.get('/', ah(async (req, res) => {
   const u = req.user;
   const p = [];
-  let sql = `SELECT b.*, w.code AS workspace_code, w.name AS workspace_name, c.full_name AS customer_name,
-                    c.email AS customer_email, ii.name AS plan_name, b2.name AS branch_name
+  let sql = `SELECT b.*, w.code AS workspace_code, w.name AS workspace_name, w.workspace_type,
+                    c.full_name AS customer_name, c.email AS customer_email, c.company_name,
+                    c.phone AS customer_phone, ii.name AS plan_name, b2.name AS branch_name
              FROM bookings b
              JOIN workspaces w ON w.id = b.workspace_id
              JOIN customers c ON c.id = b.customer_id
@@ -221,9 +249,10 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
   const {
     branchId, workspaceId, customerId, inventoryItemId, startsAt, endsAt,
     quantity = 1, seatCount = req.body.seat_count ?? 1, status = 'CONFIRMED',
-    bookingSource = 'ONLINE', notes, advanceAmount, bookingCategory
+    bookingSource = 'ONLINE', notes, advanceAmount, advancePaymentStatus = 'PENDING', bookingCategory
   } = req.body;
   const isCustomerPayment = u.role === 'CUSTOMER';
+  const isExistingRecord = req.body.isExistingRecord === true && !isCustomerPayment;
   const requestedSeatCount = Number(seatCount);
   if (!Number.isInteger(requestedSeatCount) || requestedSeatCount < 1) {
     return res.status(400).json({ error: 'Seat count must be a positive whole number.' });
@@ -239,6 +268,9 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
   if (!branch) {
     const bRes = await pool.query('SELECT id FROM branches LIMIT 1');
     branch = bRes.rows[0]?.id;
+  }
+  if (u.role !== 'SUPER_ADMIN' && u.role !== 'CUSTOMER' && branch !== u.branch_id) {
+    return res.status(403).json({ error: 'You cannot create a booking for another branch.' });
   }
   let razorpayCredentials = null;
   const isDemoPayment = isCustomerPayment && isRazorpayDemoMode();
@@ -294,7 +326,7 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const ws = await client.query(`SELECT * FROM workspaces WHERE id=$1 AND is_active=TRUE AND layout_published=TRUE FOR UPDATE`, [wsId]);
+    const ws = await client.query(`SELECT * FROM workspaces WHERE id=$1 AND branch_id=$2 AND is_active=TRUE AND layout_published=TRUE FOR UPDATE`, [wsId, branch]);
     if (!ws.rowCount) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Workspace not found.' }); }
     if (bookingCategory) {
       const workspaceType = String(ws.rows[0].workspace_type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -322,20 +354,43 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
     }
 
     // Locking the workspace row above serializes capacity checks for simultaneous bookings.
+    const bookingPlan = await client.query(
+      `SELECT CONCAT(name, ' ', description) AS plan_description
+       FROM inventory_items
+       WHERE id = $1 AND is_active = TRUE`,
+      [inventoryItemId || ws.rows[0].inventory_item_id]
+    );
+    const seatsToReserve = getReservedSeatCount(
+      ws.rows[0].workspace_type,
+      ws.rows[0].capacity,
+      requestedSeatCount,
+      bookingPlan.rows[0]?.plan_description
+    );
     const overlapRes = await client.query(
-      `SELECT COALESCE(SUM(seat_count), 0)::int AS booked_seats FROM bookings
-       WHERE workspace_id = $1
-         AND status IN ('CONFIRMED', 'REQUESTED')
-         AND starts_at < $3::timestamptz AND ends_at > $2::timestamptz`,
+      `SELECT COALESCE(SUM(CASE
+                WHEN booked_workspace.workspace_type ~* '(CONFERENCE|MEETING|BOARDROOM)'
+                  THEN booked_workspace.capacity
+                ELSE COALESCE(
+                  substring(CONCAT(inventory.name, ' ', inventory.description) FROM '([0-9]+)[[:space:]-]*[Ss]eater')::int,
+                  booking.seat_count
+                )
+              END), 0)::int AS booked_seats
+       FROM bookings booking
+       JOIN workspaces booked_workspace ON booked_workspace.id = booking.workspace_id
+       LEFT JOIN inventory_items inventory ON inventory.id = booking.inventory_item_id
+       WHERE booking.workspace_id = $1
+         AND booking.status IN ('CONFIRMED', 'REQUESTED')
+         AND booking.starts_at < $3::timestamptz AND booking.ends_at > $2::timestamptz`,
       [wsId, sAt, eAt]
     );
     const workspaceAvailability = calculateWorkspaceCapacity(
       ws.rows[0].capacity,
       overlapRes.rows[0].booked_seats,
       ws.rows[0].status,
-      isHistoricalBooking
+      isHistoricalBooking,
+      true
     );
-    if (requestedSeatCount > workspaceAvailability.availableCapacity) {
+    if (seatsToReserve > workspaceAvailability.availableCapacity) {
       await client.query('ROLLBACK');
       return res.status(409).json({
         error: workspaceAvailability.availableCapacity > 0
@@ -358,7 +413,9 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
         const cRes = await client.query('SELECT * FROM customers WHERE branch_id = $1 LIMIT 1', [branch]);
         customer = cRes;
       } else {
-        customer = await client.query('SELECT * FROM customers WHERE id=$1', [cId]);
+        customer = u.role === 'SUPER_ADMIN'
+          ? await client.query('SELECT * FROM customers WHERE id=$1', [cId])
+          : await client.query('SELECT * FROM customers WHERE id=$1 AND branch_id=$2', [cId, branch]);
       }
     }
     if (!customer.rowCount) {
@@ -461,6 +518,11 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
     const advanceAmountValue = Number(requestedAdvance.toFixed(2));
     const bookingStatus = isCustomerPayment ? 'REQUESTED' : (status || 'CONFIRMED').toUpperCase();
     const paymentMethod = String(req.body.paymentMethod || 'CASH').toUpperCase();
+    const recordedPaymentStatus = String(advancePaymentStatus || 'PENDING').toUpperCase();
+    if (!isCustomerPayment && !['PENDING', 'PAID'].includes(recordedPaymentStatus)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Advance payment status must be paid or pending.' });
+    }
     if (!isCustomerPayment && advanceAmountValue > 0 && !['CASH', 'ONLINE'].includes(paymentMethod)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Payment method must be cash at counter or online.' });
@@ -469,7 +531,7 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
     const created = await client.query(
       `INSERT INTO bookings(branch_id, workspace_id, customer_id, inventory_item_id, created_by, starts_at, ends_at, quantity, seat_count, unit_rate, tax_percent, subtotal, tax_amount, total_amount, advance_amount, status, booking_source, notes)
        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
-      [branch, wsId, customer.rows[0].id, (itemId && /^[0-9a-f]{8}-/i.test(itemId)) ? itemId : null, u.id, sAt, eAt, quantity, requestedSeatCount, rate, tax, subtotal, taxAmount, total, advanceAmountValue, bookingStatus, (bookingSource || 'ONLINE').toUpperCase(), notes || null]
+      [branch, wsId, customer.rows[0].id, (itemId && /^[0-9a-f]{8}-/i.test(itemId)) ? itemId : null, u.id, sAt, eAt, quantity, seatsToReserve, rate, tax, subtotal, taxAmount, total, advanceAmountValue, bookingStatus, (bookingSource || 'ONLINE').toUpperCase(), notes || null]
     );
 
     if (bookingStatus === 'CONFIRMED' && !isHistoricalBooking) {
@@ -485,7 +547,7 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
       const paymentResult = await client.query(
         `INSERT INTO payments(payment_number, customer_id, branch_id, booking_id, amount,
                               payment_method, due_date, status, notes)
-         VALUES($1, $2, $3, $4, $5, $6, CURRENT_DATE, 'PENDING', $7)
+         VALUES($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $8)
          RETURNING id, payment_number, amount, payment_method, status`,
         [
           `PAY-${createdRow.id.replace(/-/g, '').slice(0, 12).toUpperCase()}`,
@@ -494,7 +556,8 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
           createdRow.id,
           advanceAmountValue,
           paymentMethod,
-          `${paymentMethod === 'CASH' ? 'Cash at counter' : 'Online payment'} pending for booking ${shortId}`,
+          recordedPaymentStatus,
+          `${paymentMethod === 'CASH' ? 'Cash at counter' : 'Online payment'} ${recordedPaymentStatus === 'PAID' ? 'received' : 'pending'} for booking ${shortId}`,
         ]
       );
       counterPayment = paymentResult.rows[0];
@@ -548,16 +611,19 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
       `• Date & Time: ${bookedAtFormatted}`;
 
     // Query all Super Admins AND Branch Admins for this branch
-    const adminUsers = await client.query(
-      `SELECT id, full_name, email, role, branch_id
-       FROM users
-       WHERE is_active = TRUE
-         AND (
-           role = 'SUPER_ADMIN'
-           OR (role = 'BRANCH_ADMIN' AND (branch_id = $1 OR branch_id IS NULL))
-         )`,
-      [branch]
-    );
+    const shouldNotifyAdmins = !isExistingRecord;
+    const adminUsers = shouldNotifyAdmins
+      ? await client.query(
+        `SELECT id, full_name, email, role, branch_id
+         FROM users
+         WHERE is_active = TRUE
+           AND (
+             role = 'SUPER_ADMIN'
+             OR (role = 'BRANCH_ADMIN' AND (branch_id = $1 OR branch_id IS NULL))
+           )`,
+        [branch]
+      )
+      : { rows: [] };
 
     // Insert in-app notifications
     for (const admin of adminUsers.rows) {

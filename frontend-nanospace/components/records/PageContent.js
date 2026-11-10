@@ -13,9 +13,30 @@ import { readDemoJson, writeDemoJson } from '../../services/demoStorage';
 import { getPaymentReminderUrl } from '../../utils/paymentReminders';
 import { api, getApiCollection, getApiErrorMessage, isApiEnabled } from '../../services/api';
 import { createApiRecord, getApiRecordDetail, getApiRecords, removeApiRecord, updateApiRecord } from '../../services/apiRecords';
+import ExistingBookingModal from '../bookings/ExistingBookingModal';
+const formatBookingDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+};
+const getBookingCustomerKey = (booking) => {
+  const name = booking.customer?.name || booking.customer || booking.customerName || booking.customer_name || '';
+  return String(booking.customer_id || `${name}|${booking.company_name || booking.companyName || ''}`);
+};
+const formatWorkspaceType = (value) => {
+  const type = String(value || '').toUpperCase();
+  if (type.includes('PRIVATE') || type.includes('CABIN')) return 'Private cabin';
+  if (type.includes('CONFERENCE') || type.includes('MEETING') || type.includes('BOARDROOM')) return 'Conference / meeting room';
+  if (type.includes('DEDICATED')) return 'Dedicated desk';
+  if (type.includes('HOT')) return 'Hot desk';
+  if (type.includes('OPEN')) return 'Open workspace';
+  return type ? type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : '—';
+};
 const dataByPath = {
   '/quotations': { title: 'Quotations', desc: 'Create, share and track workspace proposals.', action: 'Create quotation', cols: [{key:'id',label:'Quote ID'},{key:'customer',label:'Customer'},{key:'branch',label:'Branch'},{key:'date',label:'Created date'},{key:'amount',label:'Amount'},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
-  '/bookings': { title: 'Bookings', desc: 'Manage online and walk-in workspace bookings.', action: 'New booking', cols: [{key:'id',label:'Booking ID'},{key:'customer',label:'Customer'},{key:'branch',label:'Branch'},{key:'workspace',label:'Workspace'},{key:'date',label:'Date'},{key:'amount',label:'Amount'},{key:'advance_amount',label:'Advance',render:(v)=>v === undefined || v === null || v === '' ? '—' : `₹${Number(v).toLocaleString('en-IN')}`},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
+  '/bookings': { title: 'Bookings', desc: 'Manage online and walk-in workspace bookings.', action: 'New booking', cols: [{key:'id',label:'Booking ID'},{key:'customer',label:'Customer'},{key:'company_name',label:'Company',form:false},{key:'customer_email',label:'Email',form:false},{key:'branch',label:'Branch'},{key:'workspace',label:'Workspace'},{key:'workspace_type',label:'Workspace type',form:false,render:(v)=>formatWorkspaceType(v)},{key:'plan_name',label:'Selected plan',form:false},{key:'seat_count',label:'Seats',form:false,render:(v)=>Number(v) > 0 ? Number(v) : '—'},{key:'date',label:'From date',render:(_,row)=>formatBookingDate(row.starts_at || row.date)},{key:'ends_at',label:'To date',form:false,render:(v)=>formatBookingDate(v)},{key:'amount',label:'Total amount'},{key:'advance_amount',label:'Advance paid',render:(v)=>`₹${Number(v || 0).toLocaleString('en-IN')}`},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
   '/customers': { title: 'Customers', desc: 'Customer profiles, memberships and KYC status.', action: 'Add customer', cols: [{key:'name',label:'Customer'},{key:'email',label:'Email'},{key:'branch',label:'Branch'},{key:'plan',label:'Membership'},{key:'advance_amount',label:'Advance paid',render:(v)=>v === undefined || v === null || v === '' ? '₹0' : `₹${Number(v).toLocaleString('en-IN')}`},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
   '/agreements': { title: 'Agreements', desc: 'Track agreements, renewals and signature status.', action: 'Create agreement', cols: [{key:'id',label:'Agreement ID'},{key:'customer',label:'Customer'},{key:'branch',label:'Branch'},{key:'date',label:'Start date'},{key:'amount',label:'Contract value'},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
   '/finance': { title: 'Revenue & Invoices', desc: 'Monitor collections, invoices and outstanding balances.', action: 'Create invoice', cols: [{key:'id',label:'Invoice'},{key:'customer',label:'Customer'},{key:'branch',label:'Branch'},{key:'issued_at',label:'Issued at',render:(v,row)=>v ? new Date(v).toLocaleString('en-IN') : row.date || '—'},{key:'amount',label:'Amount'},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
@@ -44,6 +65,8 @@ export default function PageContent({ path, user }) {
  const [query, setQuery] = useState('');
  const [customerTab, setCustomerTab] = useState('active');
  const [branch, setBranch] = useState(() => isSuperAdmin ? 'All branches' : (user?.branch || 'All branches'));
+ const [bookingCustomerFilter, setBookingCustomerFilter] = useState('');
+ const [existingBookingOpen, setExistingBookingOpen] = useState(false);
  const [initialRecords] = useState(() => isApiEnabled ? { rows: [], notice: null } : readRecords(path, config.rows));
  const [rows, setRows] = useState(initialRecords.rows);
 
@@ -118,6 +141,14 @@ export default function PageContent({ path, user }) {
    const records = await getApiRecords(path, params, []);
    setRows(records);
  };
+ const refreshAfterExistingBooking = async () => {
+   try {
+     await refreshApiRecords();
+   } catch (error) {
+     console.error('Existing booking saved, but the bookings list could not be refreshed:', error);
+     setNotice({ color: 'warning', text: 'Booking saved, but the list could not refresh. Reload the page to see it.' });
+   }
+ };
 
  useEffect(() => {
    if (!isApiEnabled) return undefined;
@@ -175,6 +206,23 @@ export default function PageContent({ path, user }) {
    return [];
  }, [path, user.branch, user.name, user.role, workspace.bookings, workspace.quotations]);
 
+ const bookingCustomerOptions = useMemo(() => {
+   const options = new Map();
+   [...workspaceRows, ...rows].forEach((booking) => {
+     const name = booking.customer?.name || booking.customer || booking.customerName || booking.customer_name || '';
+     if (!name) return;
+     const value = getBookingCustomerKey(booking);
+     if (options.has(value)) return;
+     const company = booking.company_name || booking.companyName || '';
+     const contact = booking.customer_phone || booking.customer_email || '';
+     options.set(value, {
+       value,
+       label: [name, company, contact].filter(Boolean).join(' · '),
+     });
+   });
+   return [...options.values()].sort((first, second) => first.label.localeCompare(second.label));
+ }, [rows, workspaceRows]);
+
  const visibleRows = useMemo(() => [...workspaceRows, ...rows].filter((row) => {
    const matchesSearch = !query || Object.values(row).some((value) => String(value).toLowerCase().includes(query.toLowerCase()));
    const isAll = isAllBranches(branch);
@@ -192,8 +240,10 @@ export default function PageContent({ path, user }) {
        ? String(row.status || '').trim().toLowerCase() === 'active'
        : String(row.status || '').trim().toLowerCase() !== 'active'
    );
-   return matchesSearch && matchesBranch && matchesScope && matchesCustomerTab;
- }), [branch, customerTab, isSuperAdmin, path, query, rows, user?.branch, user?.name, user?.role, workspaceRows]);
+   const matchesBookingCustomer = path !== '/bookings' || !bookingCustomerFilter ||
+     getBookingCustomerKey(row) === bookingCustomerFilter;
+   return matchesSearch && matchesBranch && matchesScope && matchesCustomerTab && matchesBookingCustomer;
+ }), [bookingCustomerFilter, branch, customerTab, isSuperAdmin, path, query, rows, user?.branch, user?.name, user?.role, workspaceRows]);
 
  const makeEmptyForm = () => {
    if (path === '/customers') {
@@ -672,6 +722,7 @@ export default function PageContent({ path, user }) {
      <div><div className="eyebrow">NANOSPACE / MANAGEMENT</div><h2>{config.title}</h2><p>{config.desc}</p></div>
      <div className="heading-actions">
        {path === '/bookings' && isApiEnabled && <>
+         {isManager && <Button color="light" className="btn-soft text-nowrap" onClick={() => setExistingBookingOpen(true)}><FiPlus className="me-2" />Record existing booking</Button>}
          <Input type="date" value={calendarDate} onChange={(event) => setCalendarDate(event.target.value)} aria-label="Booking calendar date" className="heading-date-input" />
          <Button color="light" className="btn-soft text-nowrap" onClick={loadBookingCalendar} disabled={calendarLoading}><FiCalendar className="me-2" />{calendarLoading ? 'Loading...' : 'Calendar'}</Button>
        </>}
@@ -716,7 +767,8 @@ export default function PageContent({ path, user }) {
      )}
      <div className="panel-toolbar"><div><h3>{path === '/customers' ? (customerTab === 'active' ? 'Active Customers' : 'Inactive Customers') : `${config.title} list`}</h3><p>{visibleRows.length} {visibleRows.length === 1 ? 'record' : 'records'} available</p></div><div className="table-tools">
        <div className="table-search"><FiSearch size={16} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={path === '/customers' ? `Search ${customerTab} customers...` : 'Search records...'} bsSize="sm" aria-label="Search records" /></div>
-       {user.role === 'super_admin' && <div className="filter-select"><FiFilter size={15} /><Input type="select" bsSize="sm" value={branch} onChange={(event) => setBranch(event.target.value)}><option>All branches</option>{BRANCHES.map((item) => <option key={item}>{item}</option>)}</Input></div>}
+       {path === '/bookings' && <div className="filter-select"><FiUsers size={15} /><Input type="select" bsSize="sm" value={bookingCustomerFilter} onChange={(event) => setBookingCustomerFilter(event.target.value)} aria-label="Filter bookings by customer and company"><option value="">All customers and companies</option>{bookingCustomerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Input></div>}
+       {user.role === 'super_admin' && <div className="filter-select"><FiFilter size={15} /><Input type="select" bsSize="sm" value={branch} onChange={(event) => { setBranch(event.target.value); setBookingCustomerFilter(''); }}><option>All branches</option>{BRANCHES.map((item) => <option key={item}>{item}</option>)}</Input></div>}
      </div></div>
      {loading ? (
        <div className="text-center py-4">Loading {config.title.toLowerCase()}...</div>
@@ -739,10 +791,20 @@ export default function PageContent({ path, user }) {
      <DataTable columns={config.cols} rows={calendarRows} rowKey="_recordId" emptyMessage="No bookings returned for this date." pageSize={10} />
    </Card>}
 
+   {path === '/bookings' && isApiEnabled && isManager && existingBookingOpen && (
+     <ExistingBookingModal
+       isOpen={existingBookingOpen}
+       onClose={() => setExistingBookingOpen(false)}
+       onSaved={refreshAfterExistingBooking}
+       user={user}
+       selectedBranch={branch}
+     />
+   )}
+
    <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered>
      <ModalHeader toggle={() => setModalOpen(false)}>{editingId ? `Edit ${config.title.toLowerCase()} record` : config.action}</ModalHeader>
      <ModalBody><Form onSubmit={saveRecord} noValidate>
-       {config.cols.filter((column) => column.key !== 'id').map((column) => {
+       {config.cols.filter((column) => column.key !== 'id' && column.form !== false).map((column) => {
          const key = column.key;
          const statusOnlyApi = isApiEnabled && ['/bookings', '/complaints', '/quotations'].includes(path);
          const locked = ((key === 'name' || key === 'customer' || key === 'email') && ['customer', 'employee'].includes(user.role)) ||

@@ -116,8 +116,16 @@ router.get('/', ah(async (req, res) => {
              FROM workspaces w
              JOIN branches b ON b.id = w.branch_id
              LEFT JOIN LATERAL (
-               SELECT COALESCE(SUM(bk.seat_count), 0)::int AS booked_seats
+               SELECT COALESCE(SUM(CASE
+                        WHEN booked_workspace.workspace_type ~* '(CONFERENCE|MEETING|BOARDROOM)' THEN booked_workspace.capacity
+                        ELSE COALESCE(
+                          substring(CONCAT(inventory.name, ' ', inventory.description) FROM '([0-9]+)[[:space:]-]*[Ss]eater')::int,
+                          bk.seat_count
+                        )
+                      END), 0)::int AS booked_seats
                FROM bookings bk
+               JOIN workspaces booked_workspace ON booked_workspace.id = bk.workspace_id
+               LEFT JOIN inventory_items inventory ON inventory.id = bk.inventory_item_id
                WHERE bk.workspace_id = w.id
                  AND bk.status IN ('CONFIRMED', 'REQUESTED')
                  AND bk.starts_at < CURRENT_DATE + INTERVAL '1 day'
