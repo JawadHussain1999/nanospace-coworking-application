@@ -54,6 +54,11 @@ const money = (value) => new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 2,
 }).format(Number(value) || 0);
 
+function getInitialQuotationBranch(userBranch) {
+  const branchName = String(userBranch || '').trim();
+  return !branchName || /^all branches$/i.test(branchName) ? 'Nanakramguda' : branchName;
+}
+
 function getNextQuotationNumber(quotations, branch) {
   const prefix = getQuotationNumberPrefix(branch);
   const numberPattern = new RegExp(`^${prefix}-QT-(\\d+)$`, 'i');
@@ -102,7 +107,7 @@ export default function QuotationBuilder({ user, onSaved }) {
   const [apiCustomers, setApiCustomers] = useState([]);
   const [apiQuotations, setApiQuotations] = useState([]);
   const [customerId, setCustomerId] = useState('');
-  const [branch, setBranch] = useState(user.branch || 'Nanakramguda');
+  const [branch, setBranch] = useState(() => getInitialQuotationBranch(user.branch));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState([]);
   const [quantities, setQuantities] = useState({});
@@ -651,9 +656,11 @@ export default function QuotationBuilder({ user, onSaved }) {
                     <Input type="select" value={customerId} onChange={(event) => {
                       if (event.target.value !== customerId) invalidateSavedQuotation();
                       setCustomerId(event.target.value);
-                      setWhatsappOptInConfirmed(false);
                       const selectedCustomer = customers.find((entry) => (entry.id || entry._id || entry.email) === event.target.value);
-                      if (selectedCustomer && user.role === 'super_admin' && selectedCustomer.branch) setBranch(selectedCustomer.branch);
+                      if (selectedCustomer && user.role === 'super_admin' && selectedCustomer.branch &&
+                        !/^all branches$/i.test(String(selectedCustomer.branch).trim())) {
+                        setBranch(selectedCustomer.branch);
+                      }
                     }}>
                       <option value="">Choose a customer...</option>
                       {customerOptions.map((entry) => <option key={entry.id || entry.email} value={entry.id || entry.email}>{entry.name} — {entry.company || 'Individual'}</option>)}

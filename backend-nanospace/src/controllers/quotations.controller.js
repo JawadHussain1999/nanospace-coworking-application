@@ -17,8 +17,8 @@ const u=req.user;let result;
  } else if (u.role !== 'SUPER_ADMIN') {
    p.push(u.branch_id);
    sql += ` AND q.branch_id = $${p.length}`;
- } else if (req.query.branch && req.query.branch.toLowerCase() !== 'all branches') {
-   const bRes = await pool.query('SELECT id FROM branches WHERE name ILIKE $1 OR code ILIKE $1 LIMIT 1', [req.query.branch]);
+ } else if (String(req.query.branch || '').trim() && String(req.query.branch).trim().toLowerCase() !== 'all branches') {
+   const bRes = await pool.query('SELECT id FROM branches WHERE name ILIKE $1 OR code ILIKE $1 LIMIT 1', [String(req.query.branch).trim()]);
    if (bRes.rowCount) {
      p.push(bRes.rows[0].id);
      sql += ` AND q.branch_id = $${p.length}`;
@@ -32,6 +32,8 @@ router.post('/',allowRoles(...staff),ah(async(req,res)=>{
  const u=req.user;const {branchId,customerId,items,discountAmount=0,validUntil,notes,taxRate=18,taxMode='CGST_SGST'}=req.body;
  const branch=u.role==='SUPER_ADMIN'?branchId:u.branch_id;
  if(!branch||!customerId||!Array.isArray(items)||!items.length)return res.status(400).json({error:'branchId, customerId and a non-empty items array are required.'});
+ const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ if(!uuidPattern.test(String(branch))||!uuidPattern.test(String(customerId)))return res.status(400).json({error:'A valid branch and customer are required.'});
  const cust=await pool.query('SELECT id FROM customers WHERE id=$1 AND branch_id=$2',[customerId,branch]);
  if(!cust.rowCount)return res.status(404).json({error:'Customer not found for this branch.'});
  const ids=[...new Set(items.map(i=>i.inventoryItemId))];

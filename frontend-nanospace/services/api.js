@@ -324,12 +324,12 @@ export const api = {
     create: async (body) => {
       const branchId = await resolveBranchId(body.branchId || body.branch);
       let customerId = body.customerId;
-      if (!customerId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId)) {
-        try {
-          const cRes = await apiClient.get(endpoints.customers.list, { params: branchId ? { branchId } : {} });
-          const cList = getApiCollection(cRes.data);
-          if (cList.length > 0) customerId = cList[0].id;
-        } catch (_) {}
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!branchId || !uuidPattern.test(String(branchId))) {
+        throw new Error('Select a valid branch for this quotation.');
+      }
+      if (!customerId || !uuidPattern.test(String(customerId))) {
+        throw new Error('Select a valid customer record before saving this quotation.');
       }
 
       let invList = [];
