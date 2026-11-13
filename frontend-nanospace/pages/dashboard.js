@@ -39,6 +39,7 @@ import { getPaymentReminderUrl } from "../utils/paymentReminders";
 import { clockIn, clockOut } from "../store/slices/attendanceSlice";
 import { api, getApiCollection, getApiErrorMessage, getApiPayload, isApiEnabled } from "../services/api";
 import { formatShortBookingId } from "../services/apiRecords";
+import { getKycDocuments } from "../services/kycDocuments";
 import { showSuccess, showError } from "../utils/toast";
 
 function toIsoDateString(val) {
@@ -477,6 +478,51 @@ function formatCurrency(amount) {
   }).format(amount);
 }
 
+function CustomerKycStatus({ documents, loading, error, onOpenDocuments }) {
+  if (loading) {
+    return <Alert color="info" className="mt-3 mb-0">Checking your KYC status...</Alert>;
+  }
+
+  if (error) {
+    return (
+      <Alert color="danger" className="mt-3 mb-0 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+        <span>{error}</span>
+        <Button color="light" size="sm" onClick={onOpenDocuments}>View documents</Button>
+      </Alert>
+    );
+  }
+
+  const statuses = documents.map((document) => String(document.status || '').toUpperCase());
+  const isApproved = statuses.length > 0 && statuses.every((status) => status === 'APPROVED');
+  const hasRejection = statuses.includes('REJECTED');
+  const title = isApproved ? 'KYC verified' : hasRejection ? 'KYC needs attention' : 'KYC pending';
+  const message = isApproved
+    ? 'Your documents have been approved.'
+    : hasRejection
+      ? 'A document was rejected. Upload an updated document to complete verification.'
+      : statuses.length
+        ? 'Your documents are submitted and waiting for review.'
+        : 'Upload your documents to complete account verification.';
+  const buttonText = hasRejection || !statuses.length ? 'Upload documents' : 'View documents';
+
+  return (
+    <Alert
+      color={isApproved ? 'success' : 'danger'}
+      className="mt-3 mb-0 d-flex justify-content-between align-items-center gap-3 flex-wrap"
+    >
+      <div>
+        <strong className="d-block">{title}</strong>
+        <span>{message}</span>
+      </div>
+      {!isApproved && (
+        <Button color="light" size="sm" onClick={onOpenDocuments}>
+          {buttonText} <FiArrowRight className="ms-1" />
+        </Button>
+      )}
+    </Alert>
+  );
+}
+
 function PersonalDashboard({ user, isCustomer, isReception }) {
   const router = useRouter();
   const dispatch = useDispatch();
@@ -489,6 +535,9 @@ function PersonalDashboard({ user, isCustomer, isReception }) {
   const [apiPersonalError, setApiPersonalError] = useState('');
   const [attendanceBusy, setAttendanceBusy] = useState(false);
   const [customerProfile, setCustomerProfile] = useState(null);
+  const [kycDocuments, setKycDocuments] = useState([]);
+  const [kycLoading, setKycLoading] = useState(isCustomer);
+  const [kycError, setKycError] = useState('');
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
@@ -523,6 +572,31 @@ function PersonalDashboard({ user, isCustomer, isReception }) {
       .finally(() => { if (active) setApiPersonalLoading(false); });
     return () => { active = false; };
   }, [isCustomer, user]);
+
+  useEffect(() => {
+    if (!isCustomer) return undefined;
+    let active = true;
+    const loadKycDocuments = async () => {
+      try {
+        const documents = isApiEnabled
+          ? getApiCollection(await api.documents.customer(user.customerId || user.id || user.email))
+          : await getKycDocuments();
+        const customerEmail = user.email?.trim().toLowerCase();
+        const customerDocuments = documents.filter((document) => {
+          const documentEmail = document.customerEmail || document.customer_email || document.email;
+          return documentEmail?.trim().toLowerCase() === customerEmail;
+        });
+        if (active) setKycDocuments(customerDocuments);
+      } catch (error) {
+        console.error('Could not load customer KYC status:', error);
+        if (active) setKycError(getApiErrorMessage(error, 'KYC status could not be loaded.'));
+      } finally {
+        if (active) setKycLoading(false);
+      }
+    };
+    loadKycDocuments();
+    return () => { active = false; };
+  }, [isCustomer, user.customerId, user.email, user.id]);
 
   useEffect(() => {
     if (!isApiEnabled || !isCustomer || !user.customerId) return undefined;
@@ -835,6 +909,12 @@ function PersonalDashboard({ user, isCustomer, isReception }) {
                     </div>
                   ))}
                 </div>
+                <CustomerKycStatus
+                  documents={kycDocuments}
+                  loading={kycLoading}
+                  error={kycError}
+                  onOpenDocuments={() => router.push('/documents')}
+                />
               </CardBody>
             </Card>
           </Col>

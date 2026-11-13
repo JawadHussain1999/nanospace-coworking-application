@@ -501,6 +501,21 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
 
+CREATE TABLE IF NOT EXISTS application_backups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  backup_date DATE NOT NULL,
+  backup_type VARCHAR(16) NOT NULL CHECK (backup_type IN ('DAILY','MANUAL')),
+  file_name VARCHAR(255) NOT NULL,
+  zip_data BYTEA NOT NULL,
+  record_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+  archive_size BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_application_backups_daily_date
+  ON application_backups(backup_date) WHERE backup_type = 'DAILY';
+CREATE INDEX IF NOT EXISTS idx_application_backups_created_at
+  ON application_backups(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS email_otps (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) NOT NULL,

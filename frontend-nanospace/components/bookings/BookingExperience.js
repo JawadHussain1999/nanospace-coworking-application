@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, CardBody, Col, Form, FormFeedback, FormGroup, Input, Label, Modal, ModalBody, ModalFooter, ModalHeader, Row } from 'reactstrap';
+import { Alert, Badge, Button, Card, CardBody, Col, Form, FormFeedback, FormGroup, Input, Label, Row } from 'reactstrap';
 import { Controller, useForm } from 'react-hook-form';
 import { useDispatch, useSelector } from 'react-redux';
-import { FiCalendar, FiMapPin, FiUsers, FiBriefcase, FiCheckCircle, FiArrowRight, FiZap, FiHome, FiHeadphones, FiMonitor, FiCoffee, FiShield, FiClock, FiCreditCard } from 'react-icons/fi';
+import { FiCalendar, FiMapPin, FiUsers, FiBriefcase, FiCheckCircle, FiArrowRight, FiZap, FiHome, FiHeadphones, FiMonitor, FiCoffee, FiShield, FiClock, FiCreditCard, FiExternalLink } from 'react-icons/fi';
 import WorkspaceFloorMap from '../workspace/WorkspaceFloorMap';
 import { branchFloors, PARKING_INVENTORY_ID, inventory as defaultInventory } from '../../data/inventory';
 import { addBooking } from '../../store/slices/workspaceSlice';
@@ -11,6 +11,7 @@ import { showSuccess, showError } from '../../utils/toast';
 import { api, getApiCollection, getApiErrorMessage, getApiPayload, isApiEnabled, normalizeApiCustomer, normalizeInventoryItem } from '../../services/api';
 
 const money = n => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(n) || 0);
+const RAZORPAY_BOOKING_PAYMENT_URL = 'https://razorpay.me/@nanospaceinfraprivatelimited';
 const today = new Date().toISOString().slice(0, 10);
 const isExclusiveWorkspace = (space) => /CONFERENCE|MEETING|BOARDROOM/i.test(String(space?.type || ''));
 const getPlanSeatCount = (plan) => {
@@ -36,25 +37,6 @@ const formatBookingWindow = (interval, isAllDay) => {
   }
   return `${start.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} – ${end.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
 };
-
-function loadRazorpayCheckout() {
-  if (typeof window !== 'undefined' && window.Razorpay) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-razorpay-checkout]');
-    if (existing) {
-      existing.addEventListener('load', resolve, { once: true });
-      existing.addEventListener('error', () => reject(new Error('Razorpay checkout could not be loaded.')), { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.async = true;
-    script.dataset.razorpayCheckout = 'true';
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Razorpay checkout could not be loaded.'));
-    document.body.appendChild(script);
-  });
-}
 
 const categoryDefs = [
   { key: 'hot', label: 'Hot Seat', caption: 'Flexible day & month desks', icon: FiZap, match: (i) => /hot|flex|day/i.test(`${i.name} ${i.description}`) },
@@ -94,7 +76,6 @@ export default function BookingExperience({ user }) {
   const [seat, setSeat] = useState(null);
   const [startTime, setStartTime] = useState('09:00');
   const [completedBooking, setCompletedBooking] = useState(null);
-  const [demoCheckout, setDemoCheckout] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [seatCount, setSeatCount] = useState(1);
   const [advanceAmount, setAdvanceAmount] = useState(0);
@@ -360,53 +341,6 @@ export default function BookingExperience({ user }) {
     setShowAvailability(false);
     setActiveStep(step);
   };
-  const confirmDemoPayment = async () => {
-    if (!demoCheckout) return;
-    setApiBusy(true);
-    setApiNotice('');
-    try {
-      const verification = getApiPayload(await api.payments.verifyRazorpay({
-        paymentId: demoCheckout.checkout.paymentId,
-        razorpayOrderId: demoCheckout.checkout.orderId,
-        razorpayPaymentId: `demo_payment_${demoCheckout.checkout.paymentId}`,
-        razorpaySignature: 'demo_signature',
-      }));
-      setCompletedBooking({
-        ...demoCheckout.booking,
-        ...(demoCheckout.savedBooking || {}),
-        id: demoCheckout.savedBooking.id || demoCheckout.savedBooking._id || '',
-        status: 'CONFIRMED',
-        demoPayment: true,
-        invoiceNumber: verification?.invoiceNumber,
-      });
-      setDemoCheckout(null);
-      setShowAvailability(false);
-      showSuccess('Demo payment completed and booking confirmed. No money was charged.');
-    } catch (error) {
-      console.error('Could not complete demo Razorpay payment:', error);
-      const message = getApiErrorMessage(error, 'Demo payment could not be completed.');
-      setApiNotice(message);
-      showError(message);
-    } finally {
-      setApiBusy(false);
-    }
-  };
-  const cancelDemoPayment = async () => {
-    if (!demoCheckout) return;
-    setApiBusy(true);
-    try {
-      await api.payments.cancelRazorpay(demoCheckout.checkout.paymentId);
-      setDemoCheckout(null);
-      setApiNotice('Demo payment was cancelled. No booking was confirmed.');
-    } catch (error) {
-      console.error('Could not cancel demo booking payment:', error);
-      const message = getApiErrorMessage(error, 'Demo payment could not be cancelled.');
-      setApiNotice(message);
-      showError(message);
-    } finally {
-      setApiBusy(false);
-    }
-  };
   const confirmCounterPaymentReceived = async () => {
     const paymentId = completedBooking?.paymentRecord?.id;
     if (!paymentId) return;
@@ -415,6 +349,7 @@ export default function BookingExperience({ user }) {
       const result = getApiPayload(await api.payments.confirmReceived(paymentId));
       setCompletedBooking((current) => current ? {
         ...current,
+        status: 'CONFIRMED',
         paymentRecord: { ...current.paymentRecord, ...result, status: 'PAID' },
         invoiceNumber: result?.invoice_number || current.invoiceNumber,
       } : current);
@@ -510,80 +445,22 @@ export default function BookingExperience({ user }) {
         const response = await api.bookings.create(booking);
         const savedBooking = getApiPayload(response);
         if (isCustomer && (!savedBooking?.paymentRequired || !savedBooking.checkout)) {
-          throw new Error('The server did not start secure payment. Your booking has not been confirmed.');
+          throw new Error('The server did not create a payment request. Your booking has not been confirmed.');
         }
         if (savedBooking?.paymentRequired && savedBooking.checkout) {
           const checkout = savedBooking.checkout;
-          if (checkout.mode === 'demo') {
-            setDemoCheckout({ checkout, booking, savedBooking });
-            return;
+          if (checkout.mode !== 'payment_link' || checkout.paymentUrl !== RAZORPAY_BOOKING_PAYMENT_URL) {
+            throw new Error('The server returned an invalid booking payment link.');
           }
-          try {
-            await loadRazorpayCheckout();
-            let verificationStarted = false;
-            const cancelPendingPayment = () => api.payments.cancelRazorpay(checkout.paymentId).catch((error) => {
-              console.error('Could not cancel pending Razorpay booking:', error);
-            });
-            const razorpay = new window.Razorpay({
-              key: checkout.keyId,
-              order_id: checkout.orderId,
-              amount: checkout.amount,
-              currency: checkout.currency,
-              name: checkout.name || 'NanoSpace',
-              description: checkout.description,
-              prefill: checkout.prefill,
-              theme: { color: '#292fdc' },
-              handler: async (paymentResponse) => {
-                verificationStarted = true;
-                setApiBusy(true);
-                setApiNotice('');
-                try {
-                  const verification = getApiPayload(await api.payments.verifyRazorpay({
-                    paymentId: checkout.paymentId,
-                    razorpayOrderId: paymentResponse.razorpay_order_id,
-                    razorpayPaymentId: paymentResponse.razorpay_payment_id,
-                    razorpaySignature: paymentResponse.razorpay_signature,
-                  }));
-                  setCompletedBooking({
-                    ...booking,
-                    ...(savedBooking || {}),
-                    id: savedBooking.id || savedBooking._id || '',
-                    status: 'CONFIRMED',
-                    invoiceNumber: verification?.invoiceNumber,
-                  });
-                  setShowAvailability(false);
-                  showSuccess('Payment received and booking confirmed.');
-                } catch (error) {
-                  console.error('Could not verify Razorpay booking payment:', error);
-                  const message = getApiErrorMessage(error, 'Payment could not be verified. Your booking is not confirmed.');
-                  setApiNotice(`${message} If your account was charged, contact NanoSpace support with your payment reference.`);
-                  showError(message);
-                } finally {
-                  setApiBusy(false);
-                }
-              },
-              modal: {
-                ondismiss: () => {
-                  if (!verificationStarted) {
-                    cancelPendingPayment();
-                    setApiNotice('Payment was cancelled. No booking was confirmed.');
-                  }
-                },
-              },
-            });
-            razorpay.on('payment.failed', (failure) => {
-              cancelPendingPayment();
-              const message = failure?.error?.description || 'Payment failed. Please try booking again.';
-              setApiNotice(message);
-              showError(message);
-            });
-            razorpay.open();
-          } catch (error) {
-            await api.payments.cancelRazorpay(checkout.paymentId).catch((cancelError) => {
-              console.error('Could not cancel booking after checkout could not start:', cancelError);
-            });
-            throw error;
-          }
+          setCompletedBooking({
+            ...booking,
+            ...savedBooking,
+            id: savedBooking.id || savedBooking._id || '',
+            status: 'REQUESTED',
+            paymentUrl: checkout.paymentUrl,
+          });
+          setShowAvailability(false);
+          showSuccess('Booking request saved. Please complete payment and wait for staff confirmation.');
           return;
         }
         setCompletedBooking({ ...booking, ...(savedBooking || {}), id: savedBooking?.id || savedBooking?._id || '' });
@@ -607,14 +484,12 @@ export default function BookingExperience({ user }) {
     <div className="booking-experience booking-simple booking-mmt-page booking-complete-page">
       <div className="booking-complete-banner">
         <div className="booking-complete-icon"><FiCheckCircle /></div>
-        <Badge color="success" pill>
-          {completedBooking.demoPayment ? 'Demo payment complete' : isCustomer && isApiEnabled ? 'Payment received' : 'Booking confirmed'}
+        <Badge color={completedBooking.status === 'REQUESTED' ? 'warning' : 'success'} pill>
+          {completedBooking.status === 'REQUESTED' ? 'Payment pending verification' : 'Booking confirmed'}
         </Badge>
-        <h2>Your workspace is reserved</h2>
-        <p>{completedBooking.demoPayment
-          ? 'The demo payment was simulated. No real payment was taken.'
-          : isCustomer && isApiEnabled
-          ? 'Your payment was verified and your booking is confirmed.'
+        <h2>{completedBooking.status === 'REQUESTED' ? 'Booking request received' : 'Your workspace is reserved'}</h2>
+        <p>{completedBooking.status === 'REQUESTED'
+          ? 'Pay the advance using the Razorpay link below. Your booking will remain unconfirmed until NanoSpace staff verifies the payment.'
           : 'Confirmation has been recorded. You can review these details with the customer.'}</p>
         <div className="booking-confirmation-code">{completedBooking.id || completedBooking.booking_id || 'CONFIRMED'}</div>
           {completedBooking.invoiceNumber && (
@@ -665,15 +540,28 @@ export default function BookingExperience({ user }) {
               )}
             </>
           )}
+          {completedBooking.status === 'REQUESTED' && (
+            <Alert color="warning">
+              <p className="mb-2">Pay exactly {money(completedBooking.advance_amount ?? completedBooking.advanceAmount ?? advanceAmount)} and keep your payment reference. Staff will verify receipt before confirming this booking.</p>
+              <Button
+                tag="a"
+                href={completedBooking.paymentUrl || RAZORPAY_BOOKING_PAYMENT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                color="primary"
+                className="btn-primary-custom"
+              >
+                Pay with Razorpay <FiExternalLink className="ms-2" />
+              </Button>
+            </Alert>
+          )}
           {completedBooking.parkingIncluded && (
             <div className="booking-confirmation-addon"><FiCheckCircle /> Car parking included</div>
           )}
           <div className="booking-confirmation-footer">
-            <span>{completedBooking.demoPayment
-              ? 'Demo mode only — no money was charged.'
-              : isCustomer && isApiEnabled
-                ? 'Payment processed securely by Razorpay.'
-                : 'Payment can be collected or recorded separately.'}</span>
+            <span>{completedBooking.status === 'REQUESTED'
+              ? 'Payment is not automatically detected. Wait for staff to confirm your booking.'
+              : 'Payment can be collected or recorded separately.'}</span>
             <Button color="primary" className="btn-primary-custom" onClick={() => { setCompletedBooking(null);             setSeat(null); setStartTime('09:00'); setQuantity(1); setSeatCount(1); setIncludeParking(false); setShowAvailability(false); setActiveStep(1); reset({ branch: defaultBranch, date: today, duration: '1', customerId: isCustomer ? user.customerId || user.id || '' : '', customerName: isCustomer ? user.name || '' : '', email: isCustomer ? user.email || '' : '', phone: isCustomer ? user.phone || '' : '', itemId: '', notes: '' }); setCategory('office'); }}>
               Create another booking <FiArrowRight className="ms-2" />
             </Button>
@@ -1343,7 +1231,7 @@ export default function BookingExperience({ user }) {
                   <div className="summary-guarantee-note">
                     <FiShield className="text-success me-2" size={16} />
                     <span>{isCustomer && isApiEnabled
-                      ? 'Payment is required to confirm. Demo mode simulates checkout and does not charge money.'
+                      ? 'Use the shared Razorpay link to pay; staff verifies receipt before confirming your booking.'
                       : 'Booking confirmation is recorded here. Payment is handled separately.'}</span>
                   </div>
                 </CardBody>
@@ -1352,26 +1240,6 @@ export default function BookingExperience({ user }) {
           </Col>
         </Row>
       </Form>
-      <Modal isOpen={Boolean(demoCheckout)} centered backdrop="static" keyboard={!apiBusy}>
-        <ModalHeader>Demo Razorpay checkout</ModalHeader>
-        <ModalBody>
-          <Alert color="warning">
-            Demo payment mode is active. This will simulate a successful payment; no money will be charged.
-          </Alert>
-          <div className="d-flex justify-content-between mb-2">
-            <span>Workspace</span><strong>{demoCheckout?.booking.itemName}</strong>
-          </div>
-          <div className="d-flex justify-content-between">
-            <span>Total (INR)</span><strong>{money(demoCheckout?.checkout.amount / 100)}</strong>
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <Button color="light" disabled={apiBusy} onClick={cancelDemoPayment}>Cancel</Button>
-          <Button color="primary" className="btn-primary-custom" disabled={apiBusy} onClick={confirmDemoPayment}>
-            {apiBusy ? 'Processing...' : 'Simulate successful payment'}
-          </Button>
-        </ModalFooter>
-      </Modal>
     </div>
   );
 }

@@ -1,5 +1,4 @@
 const router = require('express').Router();
-const crypto = require('crypto');
 const pool = require('../models/database.model');
 const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
@@ -8,14 +7,57 @@ const {
   calculateWorkspaceCapacity,
   getReservedSeatCount,
 } = require('../utils/workspaceCapacity');
-const { sendBookingNotificationEmail } = require('../utils/mailer');
-const {
-  createRazorpayOrder,
-  encryptSecret,
-  getBranchRazorpayCredentials,
-  isRazorpayDemoMode,
-} = require('../utils/razorpay');
+const { sendBookingNotificationEmail, sendCustomerBookingEmail } = require('../utils/mailer');
+const RAZORPAY_BOOKING_PAYMENT_URL = 'https://razorpay.me/@nanospaceinfraprivatelimited';
 const adminRoles = ['SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'];
+const isDeliverableCustomerEmail = (email) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()) &&
+  !/@example\.com$/i.test(String(email || '').trim());
+
+function notifyCustomerOfBookingChange(bookingId, eventType) {
+  pool.query(
+    `SELECT booking.*, customer.full_name AS customer_name,
+            customer.email AS customer_email, branch.name AS branch_name,
+            workspace.name AS workspace_name
+     FROM bookings booking
+     JOIN customers customer ON customer.id = booking.customer_id
+     JOIN branches branch ON branch.id = booking.branch_id
+     LEFT JOIN workspaces workspace ON workspace.id = booking.workspace_id
+     WHERE booking.id = $1`,
+    [bookingId]
+  ).then((result) => {
+    const booking = result.rows[0];
+    if (!booking || !isDeliverableCustomerEmail(booking.customer_email)) return;
+    const dateTimeOptions = {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'Asia/Kolkata',
+    };
+    const schedule = `${new Date(booking.starts_at).toLocaleString('en-IN', dateTimeOptions)} – ${new Date(booking.ends_at).toLocaleString('en-IN', dateTimeOptions)}`;
+    return sendCustomerBookingEmail({
+      email: booking.customer_email,
+      customerName: booking.customer_name,
+      bookingId: formatShortBookingId(booking.branch_name, booking.id),
+      bookingStatus: booking.status,
+      branchName: booking.branch_name,
+      workspaceName: booking.workspace_name || 'Workspace',
+      schedule,
+      totalAmount: `₹${Number(booking.total_amount || 0).toLocaleString('en-IN')}`,
+      advanceAmount: `₹${Number(booking.advance_amount || 0).toLocaleString('en-IN')}`,
+      eventType,
+    });
+  }).then((emailResult) => {
+    if (emailResult && !emailResult.success) {
+      console.error(`Customer booking email failed for booking ${bookingId}:`, emailResult.error || 'Unknown delivery error');
+    }
+  }).catch((error) => {
+    console.error(`Customer booking email failed for booking ${bookingId}:`, error.message);
+  });
+}
+
 const isValidDateOnly = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -272,22 +314,6 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
   if (u.role !== 'SUPER_ADMIN' && u.role !== 'CUSTOMER' && branch !== u.branch_id) {
     return res.status(403).json({ error: 'You cannot create a booking for another branch.' });
   }
-  let razorpayCredentials = null;
-  const isDemoPayment = isCustomerPayment && isRazorpayDemoMode();
-  if (isCustomerPayment && !isDemoPayment) {
-    try {
-      razorpayCredentials = await getBranchRazorpayCredentials(branch);
-    } catch (error) {
-      if (error.message.includes('RAZORPAY_CREDENTIALS_ENCRYPTION_KEY')) {
-        return res.status(503).json({ error: 'Branch online payments are temporarily unavailable. Please contact the branch.' });
-      }
-      throw error;
-    }
-    if (!razorpayCredentials) {
-      return res.status(503).json({ error: 'Online payments are not configured for this branch yet. Please contact the branch.' });
-    }
-  }
-
   let wsId = workspaceId;
   const requestedSeat = req.body.seat || req.body.seatCode || req.body.workspaceCode;
   if (requestedSeat) {
@@ -543,6 +569,7 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
     const createdRow = created.rows[0];
     const shortId = formatShortBookingId(branchName, createdRow.id);
     let counterPayment = null;
+    let customerPayment = null;
     if (!isCustomerPayment && advanceAmountValue > 0) {
       const paymentResult = await client.query(
         `INSERT INTO payments(payment_number, customer_id, branch_id, booking_id, amount,
@@ -561,6 +588,22 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
         ]
       );
       counterPayment = paymentResult.rows[0];
+    } else if (isCustomerPayment) {
+      const paymentResult = await client.query(
+        `INSERT INTO payments(payment_number, customer_id, branch_id, booking_id, amount,
+                              payment_method, due_date, status, notes)
+         VALUES($1, $2, $3, $4, $5, 'ONLINE', CURRENT_DATE, 'PENDING', $6)
+         RETURNING id, payment_number, amount, payment_method, status`,
+        [
+          `PAY-${createdRow.id.replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+          customer.rows[0].id,
+          branch,
+          createdRow.id,
+          advanceAmountValue,
+          `Awaiting manual verification of Razorpay payment for booking ${shortId}`,
+        ]
+      );
+      customerPayment = paymentResult.rows[0];
     }
 
     // ========================================================
@@ -593,6 +636,24 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
     const scheduleFormatted = scheduleDateStart === scheduleDateEnd
       ? scheduleDateStart
       : `${scheduleDateStart} – ${scheduleDateEnd}`;
+    const scheduleTimeStart = new Date(sAt).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    const scheduleTimeEnd = new Date(eAt).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    const bookingDateTimeOptions = {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    };
+    const customerScheduleFormatted = scheduleDateStart === scheduleDateEnd
+      ? `${scheduleDateStart}, ${scheduleTimeStart} – ${scheduleTimeEnd}`
+      : `${new Date(sAt).toLocaleString('en-US', bookingDateTimeOptions)} – ${new Date(eAt).toLocaleString('en-US', bookingDateTimeOptions)}`;
 
     const formattedAmount = `₹${Number(total || 0).toLocaleString('en-IN')}`;
     const wsRow = ws.rows[0] || {};
@@ -638,55 +699,13 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
 
     let checkout = null;
     if (isCustomerPayment) {
-      try {
-        const order = isDemoPayment
-          ? {
-              id: `demo_order_${crypto.randomUUID()}`,
-              amount: Math.round(advanceAmountValue * 100),
-              currency: 'INR',
-            }
-          : await createRazorpayOrder(razorpayCredentials, {
-              amount: Math.round(advanceAmountValue * 100),
-              receipt: `booking_${createdRow.id.replace(/-/g, '').slice(0, 30)}`,
-              notes: { bookingId: createdRow.id, branchId: branch },
-            });
-        const paymentResult = await pool.query(
-          `INSERT INTO payments(payment_number, customer_id, branch_id, booking_id, amount,
-                                payment_method, due_date, status, gateway_order_id,
-                                gateway_key_id, gateway_key_secret_encrypted, notes)
-           VALUES($1, $2, $3, $4, $5, 'RAZORPAY', CURRENT_DATE, 'PENDING', $6, $7, $8, $9)
-           RETURNING id`,
-          [
-            `PAY-${createdRow.id.slice(0, 8).toUpperCase()}`,
-            customer.rows[0].id,
-            branch,
-            createdRow.id,
-            advanceAmountValue,
-            order.id, 
-            isDemoPayment ? 'RAZORPAY_DEMO' : razorpayCredentials.keyId,
-            isDemoPayment ? null : encryptSecret(razorpayCredentials.keySecret),
-            `${isDemoPayment ? 'Demo payment' : 'Razorpay order'} for booking ${shortId}`,
-          ]
-        );
-        checkout = {
-          ...(isDemoPayment ? { mode: 'demo' } : {}),
-          paymentId: paymentResult.rows[0].id,
-          keyId: isDemoPayment ? null : razorpayCredentials.keyId,
-          orderId: order.id,
-          amount: order.amount,
-          currency: order.currency,
-          name: 'NanoSpace',
-          description: `${workspaceName} · ${branchName}`,
-          prefill: { name: customerName, email: customerEmail, contact: customerRow.phone || '' },
-        };
-      } catch (error) {
-        console.error('Could not create Razorpay order for booking:', error.message);
-        await pool.query(
-          `UPDATE bookings SET status='CANCELLED', updated_at=NOW() WHERE id=$1 AND status='REQUESTED'`,
-          [createdRow.id]
-        );
-        return res.status(502).json({ error: 'Razorpay could not start the payment. Please retry your booking.' });
-      }
+      checkout = {
+        mode: 'payment_link',
+        paymentId: customerPayment.id,
+        paymentUrl: RAZORPAY_BOOKING_PAYMENT_URL,
+        amount: Math.round(advanceAmountValue * 100),
+        currency: 'INR',
+      };
     }
 
     // Trigger async email notifications if SMTP is active
@@ -702,9 +721,33 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
           workspaceName,
           amount: formattedAmount,
           bookedAt: bookedAtFormatted,
-          schedule: scheduleFormatted,
+          schedule: customerScheduleFormatted,
         }).catch((e) => console.error('Booking notification email error:', e.message));
       }
+    }
+    if (
+      !isExistingRecord &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) &&
+      !/@example\.com$/i.test(customerEmail)
+    ) {
+      sendCustomerBookingEmail({
+        email: customerEmail,
+        customerName,
+        bookingId: shortId,
+        bookingStatus,
+        branchName,
+        workspaceName,
+        schedule: scheduleFormatted,
+        totalAmount: formattedAmount,
+        advanceAmount: `₹${Number(advanceAmountValue || 0).toLocaleString('en-IN')}`,
+        paymentUrl: isCustomerPayment ? RAZORPAY_BOOKING_PAYMENT_URL : '',
+      }).then((result) => {
+        if (!result.success) {
+          console.error(`Customer booking email failed for booking ${shortId}:`, result.error || 'Unknown delivery error');
+        }
+      }).catch((error) => {
+        console.error(`Customer booking email failed for booking ${shortId}:`, error.message);
+      });
     }
     res.status(201).json({
       data: {
@@ -715,6 +758,7 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'C
         branch_name: branchName,
         branch: branchName,
         ...(counterPayment ? { paymentRecord: counterPayment } : {}),
+        ...(customerPayment ? { paymentRecord: customerPayment } : {}),
         ...(checkout ? { paymentRequired: true, checkout } : {}),
       }
     });
@@ -778,11 +822,17 @@ router.patch('/:id/status', allowRoles(...adminRoles), ah(async (req, res) => {
   }
   const resolvedId = await resolveBookingId(pool, req.params.id);
   const p = [resolvedId, normalized];
+  const previousParams = [resolvedId];
+  let previousSql = 'SELECT status FROM bookings WHERE id=$1';
   let sql = 'UPDATE bookings SET status=$2, updated_at=NOW() WHERE id=$1';
   if (req.user.role !== 'SUPER_ADMIN') {
     p.push(req.user.branch_id);
     sql += ` AND branch_id=$${p.length}`;
+    previousParams.push(req.user.branch_id);
+    previousSql += ` AND branch_id=$${previousParams.length}`;
   }
+  const previousResult = await pool.query(previousSql, previousParams);
+  if (!previousResult.rowCount) return res.status(404).json({ error: 'Booking not found.' });
   sql += ' RETURNING *';
   const result = await pool.query(sql, p);
   if (!result.rowCount) return res.status(404).json({ error: 'Booking not found.' });
@@ -800,14 +850,31 @@ router.patch('/:id/status', allowRoles(...adminRoles), ah(async (req, res) => {
   }
   const bRes = await pool.query('SELECT name FROM branches WHERE id=$1', [updated.branch_id]);
   const shortId = formatShortBookingId(bRes.rows[0]?.name, updated.id);
+  if (previousResult.rows[0].status !== normalized) {
+    notifyCustomerOfBookingChange(updated.id, normalized === 'CANCELLED' ? 'CANCELLED' : 'UPDATED');
+  }
   res.json({ data: { ...updated, id: shortId, booking_id: shortId, raw_id: updated.id } });
 }));
 
 router.post('/:id/cancel', allowRoles(...adminRoles, 'CUSTOMER'), ah(async (req, res) => {
   const resolvedId = await resolveBookingId(pool, req.params.id);
+  const params = [resolvedId];
+  let scope = '';
+  if (req.user.role === 'CUSTOMER') {
+    params.push(req.user.id);
+    scope = ` AND customer_id IN (SELECT id FROM customers WHERE user_id=$${params.length})`;
+  } else if (req.user.role !== 'SUPER_ADMIN') {
+    params.push(req.user.branch_id);
+    scope = ` AND branch_id=$${params.length}`;
+  }
+  const previousResult = await pool.query(
+    `SELECT status FROM bookings WHERE id=$1${scope}`,
+    params
+  );
+  if (!previousResult.rowCount) return res.status(404).json({ error: 'Booking not found.' });
   const result = await pool.query(
-    `UPDATE bookings SET status='CANCELLED', updated_at=NOW() WHERE id=$1 RETURNING *`,
-    [resolvedId]
+    `UPDATE bookings SET status='CANCELLED', updated_at=NOW() WHERE id=$1${scope} RETURNING *`,
+    params
   );
   if (!result.rowCount) return res.status(404).json({ error: 'Booking not found.' });
   const updated = result.rows[0];
@@ -820,23 +887,31 @@ router.post('/:id/cancel', allowRoles(...adminRoles, 'CUSTOMER'), ah(async (req,
   }
   const bRes = await pool.query('SELECT name FROM branches WHERE id=$1', [updated.branch_id]);
   const shortId = formatShortBookingId(bRes.rows[0]?.name, updated.id);
+  if (previousResult.rows[0].status !== 'CANCELLED') notifyCustomerOfBookingChange(updated.id, 'CANCELLED');
   res.json({ data: { ...updated, id: shortId, booking_id: shortId, raw_id: updated.id } });
 }));
 
 router.post('/:id/extend', allowRoles(...adminRoles), ah(async (req, res) => {
   const days = Number(req.body.days || 1);
   const resolvedId = await resolveBookingId(pool, req.params.id);
+  const params = [resolvedId, days];
+  let scope = '';
+  if (req.user.role !== 'SUPER_ADMIN') {
+    params.push(req.user.branch_id);
+    scope = ` AND branch_id=$${params.length}`;
+  }
   const result = await pool.query(
     `UPDATE bookings
      SET ends_at = ends_at + ($2 * INTERVAL '1 day'), updated_at=NOW()
-     WHERE id=$1
+     WHERE id=$1${scope}
      RETURNING *`,
-    [resolvedId, days]
+    params
   );
   if (!result.rowCount) return res.status(404).json({ error: 'Booking not found.' });
   const updated = result.rows[0];
   const bRes = await pool.query('SELECT name FROM branches WHERE id=$1', [updated.branch_id]);
   const shortId = formatShortBookingId(bRes.rows[0]?.name, updated.id);
+  notifyCustomerOfBookingChange(updated.id, 'UPDATED');
   res.json({ data: { ...updated, id: shortId, booking_id: shortId, raw_id: updated.id } });
 }));
 

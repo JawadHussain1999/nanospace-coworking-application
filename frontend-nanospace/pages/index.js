@@ -197,7 +197,7 @@ export default function LoginPage() {
           <div className="brand-copy">
             <div className="brand-chip">
               <FiZap className="chip-icon" />
-              <span>SMART CO-WORKING PLATFORM</span>
+              <span>WORKSPACE MANAGEMENT SYSTEM</span>
             </div>
             <h1>
               Make space for
@@ -481,7 +481,7 @@ export default function LoginPage() {
                           required
                         />
                       </div>
-                      <small className="text-muted mt-1 d-block" style={{ fontSize: "11px" }}>
+                      <small className="text-muted mt-1 d-block" style={{ fontSize: "12.5px" }}>
                         We will send a 6-digit verification code to this address.
                       </small>
                     </FormGroup>
@@ -624,7 +624,7 @@ export default function LoginPage() {
                 <span>SOC-2 Ready</span>
               </div>
               <div className="login-help">
-                New to NanoSpace? <Link href="/signup">Create a customer account</Link>
+                New to NanoSpace? <Link href="/signup">Client registration</Link>
               </div>
             </div>
           </div>

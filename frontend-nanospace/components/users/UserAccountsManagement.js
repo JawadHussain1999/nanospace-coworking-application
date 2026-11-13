@@ -133,8 +133,13 @@ export default function UserAccountsManagement({ user: propUser } = {}) {
           setNotice('User account and role updated successfully.');
           showSuccess('User account and role updated successfully.');
         } else {
-          await api.users.create(account);
-          const createdMessage = 'User account created successfully. Default password: nanospace123.';
+          const response = await api.users.create(account);
+          const emailStatus = response?.data?.welcomeEmail;
+          const createdMessage = emailStatus?.sent
+            ? 'User account created. Welcome email sent with the user ID and a secure password-setup link.'
+            : emailStatus?.simulated
+              ? 'User account created. Email delivery is simulated in this environment; configure SMTP to send the welcome email.'
+              : 'User account created, but the welcome email could not be delivered. Check SMTP settings and resend password instructions.';
           setNotice(createdMessage);
           showSuccess(createdMessage);
         }

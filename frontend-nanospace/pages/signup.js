@@ -67,7 +67,15 @@ export default function SignupPage() {
         branchId: form.branchId,
         password: form.password,
       });
-      setSuccess(response?.data?.message || response?.message || 'Your account is ready. You can now sign in.');
+      const emailStatus = response?.welcomeEmail || response?.data?.welcomeEmail;
+      const emailNotice = !emailStatus
+        ? ''
+        : emailStatus.sent
+          ? ' A welcome email with your user ID has been sent.'
+          : emailStatus.simulated
+            ? ' Email delivery is simulated in this environment; contact NanoSpace if you do not receive a welcome email.'
+            : ' Your account was created, but the welcome email could not be delivered. Contact NanoSpace support.';
+      setSuccess(`${response?.data?.message || response?.message || 'Your account is ready. You can now sign in.'}${emailNotice}`);
       setForm((current) => ({ ...current, password: '', confirmPassword: '' }));
     } catch (requestError) {
       console.error('Could not create customer account:', requestError);
@@ -80,8 +88,8 @@ export default function SignupPage() {
   return (
     <>
       <Head>
-        <title>Create account | NanoSpace</title>
-        <meta name="description" content="Create a NanoSpace customer account." />
+        <title>Client registration | NanoSpace</title>
+        <meta name="description" content="Register for a NanoSpace client account." />
       </Head>
       <main className="login-layout signup-layout">
         <section className="login-brand-panel">
@@ -93,9 +101,9 @@ export default function SignupPage() {
             <div className="brand-logo-wrap"><Image src="/nanospace-logo.png" alt="NanoSpace" width={300} height={85} priority /></div>
           </div>
           <div className="brand-copy">
-            <div className="brand-chip"><FiZap className="chip-icon" /><span>NANOSPACE CUSTOMER PORTAL</span></div>
+            <div className="brand-chip"><FiZap className="chip-icon" /><span>NANOSPACE CLIENT PORTAL</span></div>
             <h1>Find your place<br /><span className="gradient-text">to do great work.</span></h1>
-            <p className="brand-subtext">Create your customer account to book workspace, manage reservations and stay connected with your NanoSpace branch.</p>
+            <p className="brand-subtext">Register as a NanoSpace client to book workspace, manage reservations and stay connected with your branch.</p>
             <div className="brand-feature-list">
               <div className="feature-item"><span className="feature-icon"><FiBriefcase /></span><div className="feature-text"><strong>Book your workspace</strong><small>Explore flexible coworking spaces and plans</small></div></div>
               <div className="feature-item"><span className="feature-icon"><FiShield /></span><div className="feature-text"><strong>Your account, your bookings</strong><small>Keep your workspace details in one place</small></div></div>
@@ -109,7 +117,7 @@ export default function SignupPage() {
           <div className="login-form-wrap signup-form-wrap">
             <div className="mobile-login-logo"><Image src="/nanospace-logo.png" alt="NanoSpace" width={235} height={60} className="mobile-logo-img" /></div>
             <div className="login-card-header">
-              <div className="login-eyebrow"><FiUser size={12} className="eyebrow-icon" /> CUSTOMER REGISTRATION</div>
+              <div className="login-eyebrow"><FiUser size={12} className="eyebrow-icon" /> CLIENT REGISTRATION</div>
               <h2>Create your account</h2>
               <p className="login-subtitle">Choose your preferred branch and enter your details to get started.</p>
             </div>

@@ -109,6 +109,11 @@ export async function resolveBranchId(branchOrId) {
 
 export const api = {
   health: () => get(endpoints.health, undefined, { timeout: 5000 }),
+  backups: {
+    list: () => get(endpoints.backups.list),
+    create: () => post(endpoints.backups.create, {}, { responseType: 'blob' }),
+    download: (id) => get(endpoints.backups.download(id), undefined, { responseType: 'blob' }),
+  },
   auth: {
     login: (credentials) => post(endpoints.auth.login, credentials),
     signupBranches: () => get(endpoints.auth.signupBranches),
@@ -136,7 +141,7 @@ export const api = {
       const payload = {
         fullName: body.fullName || body.name || body.full_name,
         email: body.email?.trim().toLowerCase(),
-        password: body.password || 'nanospace123',
+        ...(body.password ? { password: body.password } : {}),
         role,
         branchId,
       };
@@ -386,6 +391,7 @@ export const api = {
   attendance: {
     list: (params) => get(endpoints.attendance.list, params),
     detail: (id) => get(endpoints.attendance.detail(id)),
+    import: (body) => post(endpoints.attendance.import, body),
     checkIn: (body) => post(endpoints.attendance.checkIn, body),
     checkOut: (body) => post(endpoints.attendance.checkOut, body),
     update: (id, body) => patch(endpoints.attendance.update(id), body),

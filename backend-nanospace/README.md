@@ -49,7 +49,15 @@ The login response returns a JWT and basic user details.
 Roles: `SUPER_ADMIN`, `BRANCH_ADMIN`, `RECEPTION_ADMIN`, `EMPLOYEE`, `CUSTOMER`.
 Branch Admin and Reception Admin are restricted to their assigned branch. Employees and customers are restricted to their own records. These rules are enforced in API middleware and SQL query conditions, not just in the UI.
 
-Password reset emails use the existing `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and optional `EMAIL_FROM` settings. Set `FRONTEND_URL` to the public frontend origin. Without SMTP, development returns a `devResetToken` for local testing; production does not issue reset tokens when email delivery is unavailable.
+Password reset and account welcome emails use the existing `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and optional `EMAIL_FROM` settings. Set `FRONTEND_URL` to the public frontend origin. Staff-created accounts receive a single-use password setup link that expires after 30 minutes; passwords are never emailed. Self-signups receive a welcome message with their login email. Configure SMTP before enabling account creation in production; delivery failures are reported without rolling back an already-created account.
+
+Customer lifecycle emails use the same SMTP settings: booking creation, confirmation/status or schedule changes, cancellations, verified payments, quotation creation/email, password reset links, and password-change alerts. A booking created from the shared Razorpay link remains pending until staff verifies the payment; the request email explains this manual verification. Customer email delivery is skipped for placeholder `@example.com` addresses. SMTP delivery failures are logged and do not undo saved bookings, payments, quotations, or password changes.
+
+## Database backups
+
+The backend creates a full ZIP of CSV files for the tables in the PostgreSQL `public` schema once per India calendar day. If the backend is offline at the scheduled time, it creates the missing backup when it starts. The ZIP includes a JSON manifest with per-table row counts. The internal `application_backups` table is excluded to avoid recursively backing up older archives.
+
+Archives are stored in the application database, and automatic and manual archives older than 30 days are removed. A Super Admin can use the Database Backups page to create and download a fresh ZIP or download a retained archive. The API is `GET /api/backups`, `POST /api/backups`, and `GET /api/backups/:id/download`; all require the `SUPER_ADMIN` role. The archive contains confidential full-record data, including account and customer records. Protect downloaded files accordingly.
 
 ## API endpoints
 
@@ -99,6 +107,11 @@ Password reset emails use the existing `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `S
 - `POST /api/quotations` (admin/reception roles)
 - `PATCH /api/quotations/:id/status` (admin/reception; customer can accept/reject own quotation)
 
+### Backups
+- `GET /api/backups` (Super Admin; lists retained archives)
+- `POST /api/backups` (Super Admin; creates and downloads a full ZIP/CSV archive)
+- `GET /api/backups/:id/download` (Super Admin; downloads a retained archive)
+
 ### Complaints
 - `GET /api/complaints`
 - `POST /api/complaints`
@@ -142,4 +155,5 @@ For a customer account, omit `customerId`; the API uses the authenticated user's
 - This is a functional starter, not a fully audited production deployment.
 - Configure HTTPS, secrets management, backups, email/SMS, private object storage for KYC files, payment gateway verification, audit retention, and stricter validation/rate limits before production.
 - Payroll, attendance, leave, agreements, invoices, payment gateway, PDF generation, and document upload are planned extension modules; the supplied documentation defines them but does not specify all workflows/fields. Add those after confirming business rules.
+- `POST /api/attendance/import` is an authenticated Super Admin/Branch Admin endpoint for adding historical attendance entries. It validates staff/branch membership and rejects an existing staff/date record.
 - Use migrations in a production workflow rather than running setup SQL against a live database.

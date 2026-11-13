@@ -1,8 +1,11 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../models/database.model');
 const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
+const { createPasswordSetupLink } = require('../utils/accountWelcome');
+const { sendAccountWelcomeEmail } = require('../utils/mailer');
 
 router.get('/', ah(async (req, res) => {
   const { role, id, branch_id } = req.user;
@@ -72,37 +75,60 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), a
     assignedBranch = bRes.rows[0]?.id;
   }
 
+  const existingUser = await pool.query('SELECT 1 FROM users WHERE LOWER(email) = $1 LIMIT 1', [normalizedEmail]);
+  if (existingUser.rowCount) return res.status(409).json({ error: 'An account already exists for this email address.' });
+
   const client = await pool.connect();
+  let createdUser;
+  let customer;
+  let passwordSetupUrl;
   try {
     await client.query('BEGIN');
-    let userId = null;
-    if (req.user.role === 'SUPER_ADMIN') {
-      const passwordHash = await bcrypt.hash('nanospace123', 12);
-      const userResult = await client.query(
-        `INSERT INTO users(full_name, email, password_hash, role, branch_id)
-         VALUES($1, $2, $3, 'CUSTOMER', $4)
-         RETURNING id`,
-        [fullName.trim(), normalizedEmail, passwordHash, assignedBranch]
-      );
-      userId = userResult.rows[0].id;
-    }
+    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+    const userResult = await client.query(
+      `INSERT INTO users(full_name, email, password_hash, role, branch_id)
+       VALUES($1, $2, $3, 'CUSTOMER', $4)
+       RETURNING id, full_name, email`,
+      [fullName.trim(), normalizedEmail, passwordHash, assignedBranch]
+    );
+    createdUser = userResult.rows[0];
 
     const result = await client.query(
       `INSERT INTO customers(user_id, branch_id, full_name, email, phone, company_name, gstin, pan_number, plan, status)
        VALUES($1, $2, $3, $4, $5, $6, $7, $8, 'Dedicated Member', 'ACTIVE') RETURNING *`,
-      [userId, assignedBranch, fullName.trim(), normalizedEmail, normalizedPhone, companyName || null, normalizedGstin, normalizedPan]
+      [createdUser.id, assignedBranch, fullName.trim(), normalizedEmail, normalizedPhone, companyName || null, normalizedGstin, normalizedPan]
     );
+    customer = result.rows[0];
+    passwordSetupUrl = await createPasswordSetupLink(client, createdUser.id);
     await client.query('COMMIT');
-    res.status(201).json({
-      data: result.rows[0],
-      ...(userId ? { loginCreated: true } : {}),
-    });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'An account already exists for this email address.' });
+    }
     throw error;
   } finally {
     client.release();
   }
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const emailResult = await sendAccountWelcomeEmail({
+    email: createdUser.email,
+    userName: createdUser.full_name,
+    userId: createdUser.email,
+    role: 'Customer',
+    loginUrl: `${frontendUrl}/`,
+    passwordSetupUrl,
+  });
+  res.status(201).json({
+    data: {
+      ...customer,
+      welcomeEmail: {
+        sent: Boolean(emailResult.success && !emailResult.isMock),
+        simulated: Boolean(emailResult.isMock && process.env.NODE_ENV !== 'production'),
+      },
+    },
+    loginCreated: true,
+  });
 }));
 
 router.get('/:id', ah(async (req, res) => {

@@ -75,6 +75,55 @@ router.get('/', ah(async (req, res) => {
   res.json({ data: rows });
 }));
 
+router.post('/import', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) => {
+  const { branchId: requestedBranchId, userId, workDate, checkIn, checkOut, notes } = req.body;
+  const branchId = req.user.role === 'SUPER_ADMIN' ? requestedBranchId : req.user.branch_id;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isValidDate = (value) => value && !Number.isNaN(new Date(value).getTime());
+
+  if (!uuidPattern.test(String(branchId || '')) || !uuidPattern.test(String(userId || ''))) {
+    return res.status(400).json({ error: 'A valid branch and user are required.' });
+  }
+  const parsedWorkDate = new Date(`${workDate}T00:00:00.000Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(String(workDate || '')) ||
+    Number.isNaN(parsedWorkDate.getTime()) ||
+    parsedWorkDate.toISOString().slice(0, 10) !== workDate ||
+    !isValidDate(checkIn)
+  ) {
+    return res.status(400).json({ error: 'A valid workDate and checkIn timestamp are required.' });
+  }
+  if (checkOut && (!isValidDate(checkOut) || new Date(checkOut) < new Date(checkIn))) {
+    return res.status(400).json({ error: 'checkOut must be a valid timestamp on or after checkIn.' });
+  }
+
+  const branch = await pool.query('SELECT id FROM branches WHERE id=$1', [branchId]);
+  if (!branch.rowCount) return res.status(400).json({ error: 'The selected branch does not exist.' });
+
+  const employee = await pool.query(
+    `SELECT id, branch_id, role
+     FROM users
+     WHERE id=$1 AND is_active=TRUE`,
+    [userId]
+  );
+  if (!employee.rowCount || employee.rows[0].role === 'CUSTOMER' || employee.rows[0].branch_id !== branchId) {
+    return res.status(400).json({ error: 'The selected active staff member does not belong to this branch.' });
+  }
+
+  const result = await pool.query(
+    `INSERT INTO attendance(user_id, branch_id, work_date, check_in, check_out, notes)
+     VALUES($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (user_id, work_date) DO NOTHING
+     RETURNING *, work_date::text AS work_date`,
+    [userId, branchId, workDate, checkIn, checkOut || null, notes || null]
+  );
+  if (!result.rowCount) {
+    return res.status(409).json({ error: 'Attendance already exists for this staff member and date.' });
+  }
+
+  res.status(201).json({ data: result.rows[0] });
+}));
+
 router.get('/:id', ah(async (req, res) => {
   const result = await pool.query(
     `SELECT a.*, a.work_date::text AS work_date, u.full_name AS employee_name, u.email AS employee_email, b.name AS branch_name

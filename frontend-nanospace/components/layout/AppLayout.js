@@ -10,15 +10,15 @@ export default function AppLayout({ children }) {
  if (!ready || !user) return <div className="loading-screen"><Spinner color="primary"/><span>Loading NanoSpace...</span></div>;
   return (
     <div className="app-shell">
-      <Sidebar user={user} open={mobileOpen} onClose={() => setMobileOpen(false)} />
-      <main className="main-area">
-        <Topbar
-          user={user}
-          onMenu={() => setMobileOpen(true)}
-          onLogout={() => { logout(); router.replace('/'); }}
-          onSaveProfile={updateProfile}
-        />
-        <div className="page-content">{children}</div>
+     <Sidebar user={user} open={mobileOpen} onClose={() => setMobileOpen(false)} />
+     <main className="main-area">
+       <Topbar
+         user={user}
+         onMenu={() => setMobileOpen(true)}
+         onLogout={() => { logout(); router.replace('/'); }}
+         onSaveProfile={updateProfile}
+       />
+       <div className="page-content">{children}</div>
         <footer className="app-footer">
           <span className="app-footer-copy">© 2026 NanoSpace Co-working · Version 1.0</span>
           <span className="app-footer-credit">

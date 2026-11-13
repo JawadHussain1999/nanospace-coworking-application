@@ -29,7 +29,7 @@ export default function StatCard({ label, value, change, icon: Icon, tone = 'blu
                 gap: '4px',
                 padding: '3px 8px',
                 borderRadius: '6px',
-                fontSize: '11px',
+                fontSize: '12.5px',
                 fontWeight: 700,
                 background: isNegative ? '#fef2f2' : '#ecfdf5',
                 color: isNegative ? '#dc2626' : '#059669',
@@ -40,7 +40,7 @@ export default function StatCard({ label, value, change, icon: Icon, tone = 'blu
               {change.replace(/^[↑↓]\s*/, '')}
             </span>
           )}
-          <span style={{ color: '#94a3b8', fontSize: '11px' }}>{helper || 'vs. last month'}</span>
+          <span style={{ color: '#94a3b8', fontSize: '12.5px' }}>{helper || 'vs. last month'}</span>
         </div>
       </CardBody>
     </Card>

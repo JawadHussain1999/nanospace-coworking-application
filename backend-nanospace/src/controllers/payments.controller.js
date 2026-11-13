@@ -4,7 +4,37 @@ const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
 const { generateReceiptPdf } = require('../utils/pdfHelper');
 const { decryptSecret, isRazorpayDemoMode, verifyRazorpayPayment } = require('../utils/razorpay');
+const { formatShortBookingId } = require('../utils/bookingHelper');
+const { sendCustomerPaymentEmail } = require('../utils/mailer');
 const staffRoles = ['SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'];
+
+function notifyCustomerOfPayment(payment, invoice) {
+  const email = String(payment.customer_email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || /@example\.com$/i.test(email)) return;
+
+  sendCustomerPaymentEmail({
+    email,
+    customerName: payment.customer_name,
+    paymentNumber: payment.payment_number,
+    amount: `₹${Number(payment.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    paymentMethod: payment.payment_method,
+    paymentDate: payment.payment_date
+      ? new Date(payment.payment_date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+      : 'Date not available',
+    transactionReference: payment.transaction_reference || payment.gateway_payment_id,
+    invoiceNumber: invoice?.invoice_number,
+    bookingId: payment.booking_record_id
+      ? formatShortBookingId(payment.branch_name, payment.booking_record_id)
+      : undefined,
+    bookingStatus: payment.booking_status,
+  }).then((result) => {
+    if (!result.success) {
+      console.error(`Customer payment email failed for payment ${payment.payment_number}:`, result.error || 'Unknown delivery error');
+    }
+  }).catch((error) => {
+    console.error(`Customer payment email failed for payment ${payment.payment_number}:`, error.message);
+  });
+}
 
 async function ensurePaidBookingInvoice(client, payment) {
   const existing = await client.query(
@@ -188,6 +218,21 @@ router.post('/', allowRoles(...staffRoles), ah(async (req, res) => {
     [num, invoiceId || null, custId, branchResolved, payAmount, paymentMethod || 'UPI', dDate, normStatus, notes || null]
   );
 
+  if (['PAID', 'COMPLETED'].includes(normStatus)) {
+    const customerResult = await pool.query(
+      `SELECT customer.full_name, customer.email, invoice.invoice_number
+       FROM customers customer
+       LEFT JOIN invoices invoice ON invoice.id=$2
+       WHERE customer.id=$1`,
+      [custId, invoiceId || null]
+    );
+    notifyCustomerOfPayment({
+      ...result.rows[0],
+      customer_name: customerResult.rows[0]?.full_name,
+      customer_email: customerResult.rows[0]?.email,
+    }, { invoice_number: customerResult.rows[0]?.invoice_number });
+  }
+
   res.status(201).json({ data: result.rows[0] });
 }));
 
@@ -208,7 +253,7 @@ router.post('/razorpay/verify', allowRoles('CUSTOMER'), ah(async (req, res) => {
       `SELECT pay.*, booking.status AS booking_status, booking.id AS booking_record_id,
               booking.workspace_id, booking.starts_at, booking.ends_at,
               booking.subtotal, booking.tax_amount, booking.total_amount AS booking_total,
-              customer.full_name AS customer_name,
+              customer.full_name AS customer_name, customer.email AS customer_email,
               branch.name AS branch_name,
               workspace.name AS workspace_name,
               inventory.name AS item_name
@@ -281,12 +326,14 @@ router.post('/razorpay/verify', allowRoles('CUSTOMER'), ah(async (req, res) => {
        WHERE id=$1 AND status='REQUESTED'`,
       [payment.booking_record_id]
     );
+    payment.booking_status = 'CONFIRMED';
     await client.query(
       `UPDATE workspaces SET status='OCCUPIED', updated_at=NOW()
        WHERE id=$1 AND DATE($2::timestamptz) >= CURRENT_DATE`,
       [payment.workspace_id, payment.starts_at]
     );
     await client.query('COMMIT');
+    notifyCustomerOfPayment(payment, invoice);
     res.json({
       success: true,
       bookingId: payment.booking_record_id,
@@ -371,9 +418,11 @@ router.post('/:id/receive', allowRoles(...staffRoles), ah(async (req, res) => {
 
     const result = await client.query(
       `SELECT pay.*, booking.id AS booking_record_id, booking.status AS booking_status,
+              booking.workspace_id,
               booking.starts_at, booking.ends_at, booking.subtotal, booking.tax_amount,
               booking.total_amount AS booking_total,
-              customer.full_name AS customer_name, branch.name AS branch_name,
+              customer.full_name AS customer_name, customer.email AS customer_email,
+              branch.name AS branch_name,
               workspace.name AS workspace_name, inventory.name AS item_name
        FROM payments pay
        JOIN bookings booking ON booking.id=pay.booking_id
@@ -391,6 +440,7 @@ router.post('/:id/receive', allowRoles(...staffRoles), ah(async (req, res) => {
     }
 
     const payment = result.rows[0];
+    const isNewlyPaid = payment.status !== 'PAID';
     if (!['CASH', 'ONLINE'].includes(String(payment.payment_method).toUpperCase())) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Only cash or online booking payments can be confirmed here.' });
@@ -414,7 +464,21 @@ router.post('/:id/receive', allowRoles(...staffRoles), ah(async (req, res) => {
       payment.transaction_reference = updated.rows[0].transaction_reference;
     }
     const invoice = await ensurePaidBookingInvoice(client, payment);
+    if (payment.booking_status === 'REQUESTED') {
+      await client.query(
+        `UPDATE bookings SET status='CONFIRMED', updated_at=NOW()
+         WHERE id=$1 AND status='REQUESTED'`,
+        [payment.booking_record_id]
+      );
+      payment.booking_status = 'CONFIRMED';
+      await client.query(
+        `UPDATE workspaces SET status='OCCUPIED', updated_at=NOW()
+         WHERE id=$1 AND DATE($2::timestamptz) >= CURRENT_DATE`,
+        [payment.workspace_id, payment.starts_at]
+      );
+    }
     await client.query('COMMIT');
+    if (isNewlyPaid) notifyCustomerOfPayment(payment, invoice);
     res.json({
       success: true,
       data: {

@@ -34,7 +34,7 @@ router.post('/',allowRoles(...staff),ah(async(req,res)=>{
  if(!branch||!customerId||!Array.isArray(items)||!items.length)return res.status(400).json({error:'branchId, customerId and a non-empty items array are required.'});
  const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  if(!uuidPattern.test(String(branch))||!uuidPattern.test(String(customerId)))return res.status(400).json({error:'A valid branch and customer are required.'});
- const cust=await pool.query('SELECT id FROM customers WHERE id=$1 AND branch_id=$2',[customerId,branch]);
+ const cust=await pool.query('SELECT id,full_name,email,company_name,phone,gstin,address FROM customers WHERE id=$1 AND branch_id=$2',[customerId,branch]);
  if(!cust.rowCount)return res.status(404).json({error:'Customer not found for this branch.'});
  const ids=[...new Set(items.map(i=>i.inventoryItemId))];
  if(ids.some(x=>!x))return res.status(400).json({error:'Every item requires inventoryItemId and quantity.'});
@@ -72,6 +72,7 @@ router.post('/',allowRoles(...staff),ah(async(req,res)=>{
   return {...item,taxPercent:rate,subtotal:taxableLine,taxAmount:lineTax,total:Number((taxableLine+lineTax).toFixed(2))};
  });
  const client=await pool.connect();
+ let createdQuotation;
  try{
   await client.query('BEGIN');
   await client.query('SELECT pg_advisory_xact_lock(62514001)');
@@ -90,10 +91,53 @@ router.post('/',allowRoles(...staff),ah(async(req,res)=>{
     VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
    [branch,customerId,u.id,number,JSON.stringify(taxedSnapshots),subtotal,taxAmount,discount,total,rate,mode,validUntil||null,notes||null]
   );
+  createdQuotation={
+   ...result.rows[0],
+   customer_name:cust.rows[0].full_name,
+   customer_email:cust.rows[0].email,
+   company_name:cust.rows[0].company_name,
+   customer_phone:cust.rows[0].phone,
+   customer_gstin:cust.rows[0].gstin,
+   customer_address:cust.rows[0].address,
+   branch_name:branchResult.rows[0].name,
+  };
   await client.query('COMMIT');
-  res.status(201).json({data:result.rows[0]});
  }catch(error){await client.query('ROLLBACK');throw error;}
  finally{client.release();}
+ let emailStatus='no_email';
+ if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(createdQuotation.customer_email||''))&&!/@example\.com$/i.test(createdQuotation.customer_email)){
+  let emailDelivered=false;
+  try{
+   const {generateQuotationPdf}=require('../utils/pdfHelper');
+   const {getQuotationBranchDetails}=require('../utils/quotationBranchDetails');
+   const {sendQuotationEmail}=require('../utils/mailer');
+   const branchDetails=getQuotationBranchDetails(createdQuotation.branch_name);
+   const pdf=await generateQuotationPdf(createdQuotation);
+   await sendQuotationEmail({
+    email:createdQuotation.customer_email,
+    customerName:createdQuotation.customer_name,
+    quotationNumber:createdQuotation.quotation_number,
+    quotationDate:new Date(createdQuotation.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Kolkata'}),
+    validUntil:createdQuotation.valid_until?new Date(createdQuotation.valid_until).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Kolkata'}):null,
+    branchName:branchDetails.name,
+    branchAddress:branchDetails.address,
+    branchPhone:branchDetails.phone,
+    branchEmail:branchDetails.email,
+    total:createdQuotation.total_amount,
+    pdf,
+   });
+   emailDelivered=true;
+   emailStatus='sent';
+   const statusResult=await pool.query("UPDATE quotations SET status='SENT',updated_at=NOW() WHERE id=$1",[createdQuotation.id]);
+   if(statusResult.rowCount)createdQuotation.status='SENT';
+   else console.error(`Quotation ${createdQuotation.quotation_number} was emailed but its status could not be updated.`);
+  }catch(error){
+   console.error(`Could not email newly created quotation ${createdQuotation.quotation_number}:`,error.message);
+   emailStatus=emailDelivered?'sent':'failed';
+  }
+ }
+ createdQuotation.emailStatus=emailStatus;
+ res.status(201).json({data:createdQuotation,emailStatus});
 }));
 router.get('/:id/pdf',allowRoles(...staff,'CUSTOMER'),ah(async(req,res)=>{
  const u=req.user;const params=[req.params.id];let scope="($1='SUPER_ADMIN' OR 1=0)";

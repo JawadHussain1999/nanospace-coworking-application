@@ -52,7 +52,7 @@ export default function QuotationHistory({ user, refreshToken = 0 }) {
     return !user.branch || isAllBranches(user.branch) || String(quotation.branch || '').trim().toLowerCase() === String(user.branch).trim().toLowerCase();
   });
   const columns = [
-    { key: 'quotationId', label: 'Quotation ID', render: (id) => <span className="text-nowrap" style={{ fontSize: '0.8rem' }}>{id}</span> },
+    { key: 'quotationId', label: 'Quotation ID', render: (id) => <span className="text-nowrap" style={{ fontSize: '0.9rem' }}>{id}</span> },
     { key: 'customer', label: 'Customer' },
     { key: 'branch', label: 'Branch' },
     { key: 'date', label: 'Created', render: (date) => new Date(date).toLocaleDateString('en-IN') },

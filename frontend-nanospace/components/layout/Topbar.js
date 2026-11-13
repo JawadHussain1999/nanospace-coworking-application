@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/router';
+import Wave from 'react-wavify';
 import {
   FiMenu,
   FiBell,
@@ -30,17 +31,28 @@ import {
   Spinner,
 } from 'reactstrap';
 import { ROLE_LABELS } from '../../utils/permissions';
-import { api, getApiCollection, getApiErrorMessage, getApiPayload, isApiEnabled } from '../../services/api';
+import { api, getApiCollection, getApiErrorMessage, isApiEnabled } from '../../services/api';
 import UserAvatar from '../shared/UserAvatar';
 import { showSuccess, showError } from '../../utils/toast';
+
+const subscribeToReducedMotion = (onChange) => {
+  const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  mediaQuery.addEventListener('change', onChange);
+  return () => mediaQuery.removeEventListener('change', onChange);
+};
+const getReducedMotionPreference = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const getServerReducedMotionPreference = () => false;
 
 export function TopbarLiveClock() {
   const [time, setTime] = useState(null);
 
   useEffect(() => {
-    setTime(new Date());
+    const initialUpdate = setTimeout(() => setTime(new Date()), 0);
     const interval = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   if (!time) {
@@ -92,6 +104,11 @@ export function TopbarLiveClock() {
 }
 
 export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
+  const prefersReducedMotion = useSyncExternalStore(
+    subscribeToReducedMotion,
+    getReducedMotionPreference,
+    getServerReducedMotionPreference,
+  );
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -105,8 +122,6 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
   const [notifications, setNotifications] = useState([]);
   const [notificationError, setNotificationError] = useState('');
   const [notificationsLoading, setNotificationsLoading] = useState(isApiEnabled);
-  const [apiHealth, setApiHealth] = useState('checking');
-  const [notificationDetail, setNotificationDetail] = useState(null);
   const router = useRouter();
   const pathSegment = router.asPath.split(/[?#]/)[0].split('/')[1] || 'dashboard';
   const title = pathSegment.replace(/-/g, ' ').replace(/^./, (character) => character.toUpperCase());
@@ -115,13 +130,6 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
   useEffect(() => {
     if (!isApiEnabled) return undefined;
     let active = true;
-
-    api.health()
-      .then(() => { if (active) setApiHealth('connected'); })
-      .catch((error) => {
-        console.error('NanoSpace API health check failed:', error);
-        if (active) setApiHealth('unavailable');
-      });
 
     const loadNotifications = async (isBackgroundPoll = false) => {
       try {
@@ -241,19 +249,6 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
     }
   };
 
-  const showNotificationDetail = async (notification) => {
-    if (!isApiEnabled) {
-      setNotificationDetail(notification);
-      return;
-    }
-    try {
-      setNotificationDetail(getApiPayload(await api.notifications.detail(notification.id)));
-    } catch (error) {
-      console.error('Could not load notification details:', error);
-      setNotificationError(getApiErrorMessage(error, 'Notification details could not be loaded.'));
-    }
-  };
-
   const markAllNotificationsRead = async () => {
     try {
       await api.notifications.markAllRead();
@@ -277,27 +272,50 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
   return (
     <>
       <header className="topbar">
+        {!prefersReducedMotion && (
+          <div className="topbar-waves" aria-hidden="true">
+            <Wave
+              className="topbar-wave"
+              fill="url(#topbar-wave-gradient)"
+              options={{ height: 24, amplitude: 8, speed: 0.08, points: 4 }}
+            >
+              <defs>
+                <linearGradient id="topbar-wave-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.04" />
+                  <stop offset="100%" stopColor="#0d9488" stopOpacity="0.42" />
+                </linearGradient>
+              </defs>
+            </Wave>
+          </div>
+        )}
         <button className="icon-button mobile-menu" onClick={onMenu} aria-label="Open navigation"><FiMenu size={21} /></button>
         <div className="topbar-heading">
           <h1>{title}</h1>
-          <span>Welcome back, {user?.name?.split(' ')[0] || 'User'} 👋</span>
         </div>
-
         <div className="topbar-actions">
           <div className="topbar-timings">
             <TopbarLiveClock />
           </div>
           <Dropdown isOpen={notificationsOpen} toggle={() => setNotificationsOpen(!notificationsOpen)}>
-            <DropdownToggle tag="button" className="icon-button notification-button" aria-label="Notifications">
+            <DropdownToggle
+              tag="button"
+              className={`icon-button notification-button ${unreadCount > 0 ? 'has-unread' : ''}`}
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              aria-haspopup="true"
+            >
               <FiBell size={18} />
-              {unreadCount > 0 && <i className="unread-dot" />}
+              {unreadCount > 0 && (
+                <span className="notification-count-badge" aria-hidden="true">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </DropdownToggle>
             <DropdownMenu end className="shadow-lg border-0 notification-menu p-0">
               <div className="px-3 py-2 fw-semibold d-flex align-items-center justify-content-between border-bottom">
                 <span className="d-flex align-items-center gap-2">
                   <FiBell size={15} className="text-primary" />
                   <span>Notifications</span>
-                  {unreadCount > 0 && <Badge color="danger" pill style={{ fontSize: '10px' }}>{unreadCount} new</Badge>}
+                  {unreadCount > 0 && <Badge color="danger" pill style={{ fontSize: '11px' }}>{unreadCount} new</Badge>}
                 </span>
                 {isApiEnabled && unreadCount > 0 && (
                   <Button color="link" size="sm" className="p-0 text-decoration-none small" onClick={markAllNotificationsRead}>
@@ -330,14 +348,14 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                         <strong className="notification-card-title text-dark">
                           {isBooking ? '📋 ' : ''}{notification.title || notification.subject || 'Notification'}
                         </strong>
-                        {!notification.read && <Badge color="primary" pill style={{ fontSize: '9.5px', padding: '2px 6px' }}>New</Badge>}
+                        {!notification.read && <Badge color="primary" pill style={{ fontSize: '10.5px', padding: '2px 6px' }}>New</Badge>}
                       </div>
-                      <div className="small text-muted notification-card-message mb-2" style={{ whiteSpace: 'pre-line', fontSize: '12px', lineHeight: 1.45 }}>
+                      <div className="small text-muted notification-card-message mb-2" style={{ whiteSpace: 'pre-line', fontSize: '13.5px', lineHeight: 1.45 }}>
                         {notification.message || notification.body}
                       </div>
                       <div className="d-flex align-items-center justify-content-between mt-2 pt-1 border-top border-light">
                         {notifDateStr && (
-                          <span className="d-inline-flex align-items-center gap-1 text-primary fw-medium" style={{ fontSize: '11px' }}>
+                          <span className="d-inline-flex align-items-center gap-1 text-primary fw-medium" style={{ fontSize: '12.5px' }}>
                             <FiClock size={12} />
                             <span>{notifDateStr}</span>
                           </span>
@@ -513,10 +531,6 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
         </ModalBody>
       </Modal>
 
-      <Modal isOpen={Boolean(notificationDetail)} toggle={() => setNotificationDetail(null)} centered>
-        <ModalHeader toggle={() => setNotificationDetail(null)}>Notification details</ModalHeader>
-        <ModalBody><pre className="small mb-0" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(notificationDetail, null, 2)}</pre></ModalBody>
-      </Modal>
     </>
   );
 }

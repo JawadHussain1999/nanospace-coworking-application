@@ -181,6 +181,109 @@ async function sendPasswordResetEmail(email, resetUrl, userName = 'NanoSpace Mem
   }
 }
 
+async function sendPasswordChangedEmail(email, userName = 'NanoSpace Member') {
+  const user = (process.env.SMTP_USER || '').trim();
+  const fromAddress = process.env.EMAIL_FROM || (user ? `"NanoSpace Workspace" <${user}>` : '"NanoSpace Platform" <no-reply@nanospace.in>');
+  const safeName = String(userName || 'NanoSpace Member').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
+
+  try {
+    const transport = getTransporter();
+    if (transport.isMock && process.env.NODE_ENV === 'production') {
+      return { success: false, isMock: true, error: 'SMTP is not configured for production email delivery.' };
+    }
+
+    const result = await transport.sendMail({
+      from: fromAddress,
+      to: email,
+      subject: 'Your NanoSpace password was changed',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:24px auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;color:#1e293b">
+          <h1 style="font-size:22px">Password changed</h1>
+          <p>Hello <strong>${safeName}</strong>,</p>
+          <p>The password for your NanoSpace account was changed successfully.</p>
+          <p>If you did not make this change, contact your NanoSpace branch immediately.</p>
+        </div>
+      `,
+      text: `Hello ${userName || 'NanoSpace Member'},\n\nThe password for your NanoSpace account was changed successfully.\n\nIf you did not make this change, contact your NanoSpace branch immediately.`,
+    });
+
+    return { success: true, isMock: Boolean(result.isMock) };
+  } catch (error) {
+    console.error(`[NanoSpace Mailer] Password change email delivery failed for ${email}:`, error.message);
+    return { success: false, error: 'SMTP could not deliver the password change email.' };
+  }
+}
+
+async function sendAccountWelcomeEmail({ email, userName, userId, role, loginUrl, passwordSetupUrl }) {
+  const user = (process.env.SMTP_USER || '').trim();
+  const fromAddress = process.env.EMAIL_FROM || (user ? `"NanoSpace Workspace" <${user}>` : '"NanoSpace Platform" <no-reply@nanospace.in>');
+  const safe = (value) => String(value || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
+  const greeting = safe(userName || 'NanoSpace Member');
+  const safeUserId = safe(userId || email);
+  const safeRole = safe(role || 'Customer');
+  const safeLoginUrl = safe(loginUrl);
+  const setupLink = passwordSetupUrl
+    ? `<p style="margin:28px 0"><a href="${safe(passwordSetupUrl)}" style="background:#3730a3;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px">Set your password</a></p><p>This one-time link expires in 30 minutes. Create a new password before signing in.</p>`
+    : '';
+  const passwordInstructions = passwordSetupUrl
+    ? 'Use the secure link below to set a password. For your security, your password is not included in this email.'
+    : 'Sign in using the password you chose during registration. For your security, your password is not included in this email.';
+
+  try {
+    const transport = getTransporter();
+    if (transport.isMock && process.env.NODE_ENV === 'production') {
+      return { success: false, isMock: true, error: 'SMTP is not configured for production email delivery.' };
+    }
+
+    const result = await transport.sendMail({
+      from: fromAddress,
+      to: email,
+      subject: 'Welcome to NanoSpace — your account is ready',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:24px auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;color:#1e293b">
+          <h1 style="font-size:22px">Welcome to NanoSpace</h1>
+          <p>Hello <strong>${greeting}</strong>,</p>
+          <p>Your ${safeRole} account is ready. You can now access your NanoSpace account.</p>
+          <p><strong>User ID:</strong> ${safeUserId}</p>
+          <p>${passwordInstructions}</p>
+          ${setupLink}
+          <p><a href="${safeLoginUrl}">Go to NanoSpace sign in</a></p>
+          <p>If you did not expect this account, contact your NanoSpace branch.</p>
+        </div>
+      `,
+      text: [
+        `Hello ${userName || 'NanoSpace Member'},`,
+        '',
+        `Your ${role || 'Customer'} account is ready.`,
+        `User ID: ${userId || email}`,
+        passwordSetupUrl
+          ? `Set your password using this one-time link (expires in 30 minutes): ${passwordSetupUrl}`
+          : 'Sign in using the password you chose during registration. Your password is not included in this email.',
+        `Sign in: ${loginUrl}`,
+        '',
+        'If you did not expect this account, contact your NanoSpace branch.',
+      ].join('\n'),
+    });
+
+    return { success: true, isMock: Boolean(result.isMock) };
+  } catch (error) {
+    console.error(`[NanoSpace Mailer] Welcome email delivery failed for ${email}:`, error.message);
+    return { success: false, error: 'SMTP could not deliver the welcome email.' };
+  }
+}
+
 /**
  * Send Booking notification email to Admins (Super Admin and Branch Admin)
  */
@@ -271,6 +374,173 @@ async function sendBookingNotificationEmail({
   }
 }
 
+async function sendCustomerBookingEmail({
+  email,
+  customerName,
+  bookingId,
+  bookingStatus,
+  branchName,
+  workspaceName,
+  schedule,
+  totalAmount,
+  advanceAmount,
+  paymentUrl,
+  eventType = 'CREATED',
+}) {
+  const user = (process.env.SMTP_USER || '').trim();
+  const fromAddress = process.env.EMAIL_FROM || (user ? `"NanoSpace Workspace" <${user}>` : '"NanoSpace Platform" <no-reply@nanospace.in>');
+  const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
+  const safePaymentUrl = /^https:\/\/[^\s]+$/i.test(paymentUrl || '') ? paymentUrl : '';
+  const status = String(bookingStatus || '').toUpperCase();
+  const event = String(eventType || 'CREATED').toUpperCase();
+  const isPendingRequest = status === 'REQUESTED';
+  const eventContent = event === 'CANCELLED' || status === 'CANCELLED'
+    ? { heading: 'Booking cancelled', message: 'Your workspace booking has been cancelled.' }
+    : event === 'UPDATED'
+      ? { heading: 'Booking updated', message: `Your booking details have changed. The current booking status is ${status.toLowerCase()}.` }
+      : status === 'REQUESTED'
+        ? { heading: 'Booking request received', message: 'Your booking request is not confirmed yet. Please complete the advance payment and wait for the NanoSpace team to verify it.' }
+        : status === 'COMPLETED'
+          ? { heading: 'Booking completed', message: 'Your workspace booking has been marked as completed.' }
+          : { heading: 'Booking confirmed', message: 'Your workspace booking is confirmed.' };
+  const heading = eventContent.heading;
+  const statusMessage = eventContent.message;
+  const paymentInstructions = isPendingRequest && event === 'CREATED' && safePaymentUrl
+    ? `<p>Pay the advance using <a href="${safe(safePaymentUrl)}">this Razorpay link</a>. Include booking reference <strong>${safe(bookingId)}</strong> in the payment notes. Payment is verified manually and is not matched automatically.</p>`
+    : '';
+  const advanceDescription = isPendingRequest
+    ? `${advanceAmount} (pending payment verification)`
+    : advanceAmount;
+
+  try {
+    const transport = getTransporter();
+    if (transport.isMock && process.env.NODE_ENV === 'production') {
+      return { success: false, isMock: true, error: 'SMTP is not configured for production email delivery.' };
+    }
+
+    const result = await transport.sendMail({
+      from: fromAddress,
+      to: email,
+      subject: `${heading}: ${bookingId}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:24px auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;color:#1e293b">
+          <h1 style="font-size:22px">${heading}</h1>
+          <p>Hello <strong>${safe(customerName || 'NanoSpace Customer')}</strong>,</p>
+          <p>${statusMessage}</p>
+          <p><strong>Booking reference:</strong> ${safe(bookingId)}</p>
+          <p><strong>Branch:</strong> ${safe(branchName)}</p>
+          <p><strong>Workspace:</strong> ${safe(workspaceName)}</p>
+          <p><strong>Schedule:</strong> ${safe(schedule)}</p>
+          <p><strong>Total:</strong> ${safe(totalAmount)}</p>
+          <p><strong>Advance:</strong> ${safe(advanceDescription)}</p>
+          ${paymentInstructions}
+          <p>Keep this email for your records. Contact your branch if you need help.</p>
+        </div>
+      `,
+      text: [
+        `Hello ${customerName || 'NanoSpace Customer'},`,
+        '',
+        statusMessage,
+        `Booking reference: ${bookingId}`,
+        `Branch: ${branchName}`,
+        `Workspace: ${workspaceName}`,
+        `Schedule: ${schedule}`,
+        `Total: ${totalAmount}`,
+        `Advance: ${advanceDescription}`,
+        ...(isPendingRequest && event === 'CREATED' && safePaymentUrl
+          ? [`Pay the advance: ${safePaymentUrl}`, `Include booking reference ${bookingId} in the payment notes. Payment is verified manually and is not matched automatically.`]
+          : []),
+        '',
+        'Contact your branch if you need help.',
+      ].join('\n'),
+    });
+
+    return { success: true, isMock: Boolean(result.isMock) };
+  } catch (error) {
+    console.error(`[NanoSpace Mailer] Booking email delivery failed for booking ${bookingId}:`, error.message);
+    return { success: false, error: 'SMTP could not deliver the booking email.' };
+  }
+}
+
+async function sendCustomerPaymentEmail({
+  email,
+  customerName,
+  paymentNumber,
+  amount,
+  paymentMethod,
+  paymentDate,
+  transactionReference,
+  invoiceNumber,
+  bookingId,
+  bookingStatus,
+}) {
+  const user = (process.env.SMTP_USER || '').trim();
+  const fromAddress = process.env.EMAIL_FROM || (user ? `"NanoSpace Workspace" <${user}>` : '"NanoSpace Platform" <no-reply@nanospace.in>');
+  const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
+  const bookingConfirmed = String(bookingStatus || '').toUpperCase() === 'CONFIRMED';
+
+  try {
+    const transport = getTransporter();
+    if (transport.isMock && process.env.NODE_ENV === 'production') {
+      return { success: false, isMock: true, error: 'SMTP is not configured for production email delivery.' };
+    }
+
+    const result = await transport.sendMail({
+      from: fromAddress,
+      to: email,
+      subject: `Payment received: ${paymentNumber}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:24px auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;color:#1e293b">
+          <h1 style="font-size:22px">Payment received</h1>
+          <p>Hello <strong>${safe(customerName || 'NanoSpace Customer')}</strong>,</p>
+          <p>We have received and verified your payment.</p>
+          <p><strong>Receipt number:</strong> ${safe(paymentNumber)}</p>
+          <p><strong>Amount received:</strong> ${safe(amount)}</p>
+          <p><strong>Payment method:</strong> ${safe(paymentMethod)}</p>
+          <p><strong>Payment date:</strong> ${safe(paymentDate)}</p>
+          ${transactionReference ? `<p><strong>Transaction reference:</strong> ${safe(transactionReference)}</p>` : ''}
+          ${invoiceNumber ? `<p><strong>Invoice:</strong> ${safe(invoiceNumber)}</p>` : ''}
+          ${bookingId ? `<p><strong>Booking reference:</strong> ${safe(bookingId)}</p>` : ''}
+          ${bookingConfirmed ? '<p>Your related booking is now confirmed.</p>' : ''}
+          <p>Keep this email for your records.</p>
+        </div>
+      `,
+      text: [
+        `Hello ${customerName || 'NanoSpace Customer'},`,
+        '',
+        'We have received and verified your payment.',
+        `Receipt number: ${paymentNumber}`,
+        `Amount received: ${amount}`,
+        `Payment method: ${paymentMethod}`,
+        `Payment date: ${paymentDate}`,
+        ...(transactionReference ? [`Transaction reference: ${transactionReference}`] : []),
+        ...(invoiceNumber ? [`Invoice: ${invoiceNumber}`] : []),
+        ...(bookingId ? [`Booking reference: ${bookingId}`] : []),
+        ...(bookingConfirmed ? ['Your related booking is now confirmed.'] : []),
+        '',
+        'Keep this email for your records.',
+      ].join('\n'),
+    });
+
+    return { success: true, isMock: Boolean(result.isMock) };
+  } catch (error) {
+    console.error(`[NanoSpace Mailer] Payment email delivery failed for payment ${paymentNumber}:`, error.message);
+    return { success: false, error: 'SMTP could not deliver the payment email.' };
+  }
+}
+
 async function sendQuotationEmail({ email, customerName, quotationNumber, quotationDate, validUntil, branchName, branchAddress, branchPhone, branchEmail, total, pdf }) {
   const transport = getTransporter();
   if (transport.isMock) {
@@ -343,6 +613,10 @@ async function sendQuotationEmail({ email, customerName, quotationNumber, quotat
 module.exports = {
   sendOtpEmail,
   sendPasswordResetEmail,
+  sendPasswordChangedEmail,
+  sendAccountWelcomeEmail,
   sendBookingNotificationEmail,
+  sendCustomerBookingEmail,
+  sendCustomerPaymentEmail,
   sendQuotationEmail,
 };

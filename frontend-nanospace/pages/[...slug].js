@@ -14,6 +14,8 @@ import AttendanceManagement from '../components/attendance/AttendanceManagement'
 import UserAccountsManagement from '../components/users/UserAccountsManagement';
 import KycDocumentsManagement from '../components/customers/KycDocumentsManagement';
 import SystemSettingsManagement from '../components/settings/SystemSettingsManagement';
+import BackupsManagement from '../components/settings/BackupsManagement';
+import BulkImportManagement from '../components/settings/BulkImportManagement';
 import { getMenuForRole } from '../utils/permissions';
 
 export default function DynamicPage() {
@@ -44,6 +46,8 @@ export default function DynamicPage() {
   else if (path === '/inventory') content = <InventoryManagement user={user} />;
   else if (path === '/attendance') content = <AttendanceManagement user={user} />;
   else if (path === '/settings') content = <><UserAccountsManagement user={user} /><SystemSettingsManagement user={user} /></>;
+  else if (path === '/backups' && user.role === 'super_admin') content = <BackupsManagement />;
+  else if (path === '/bulk-import') content = <BulkImportManagement user={user} />;
   else content = <PageContent key={path} path={path} user={user} />;
 
   return (

@@ -15,7 +15,7 @@ const menus = {
     { label: 'People', icon: 'people', items: [{ label: 'Employees', path: '/employees' }, { label: 'Attendance', path: '/attendance' }, { label: 'Leave Management', path: '/leave' }, { label: 'Payroll', path: '/payroll' }] },
     { label: 'Finance', icon: 'finance', items: [{ label: 'Revenue & Invoices', path: '/finance' }, { label: 'Payment Reminders', path: '/reminders' }, { label: 'Expenses', path: '/expenses' }] },
     { label: 'Reports', icon: 'reports', items: [{ label: 'Reports', path: '/reports' }] },
-    { label: 'Settings', icon: 'settings', items: [{ label: 'Users & Roles', path: '/settings' }, { label: 'Audit Logs', path: '/audit-logs' }] }
+    { label: 'Settings', icon: 'settings', items: [{ label: 'Users & Roles', path: '/settings' }, { label: 'Bulk Import', path: '/bulk-import' }, { label: 'Audit Logs', path: '/audit-logs' }, { label: 'Database Backups', path: '/backups' }] }
   ],
   branch_admin: [
     { label: 'Overview', icon: 'dashboard', items: [{ label: 'Dashboard', path: '/dashboard' }] },
@@ -24,7 +24,8 @@ const menus = {
     { label: 'Workspace', icon: 'workspace', items: [{ label: 'Floor Studio', path: '/workspace' }, { label: 'Inventory', path: '/inventory' }] },
     { label: 'People', icon: 'people', items: [{ label: 'Employees', path: '/employees' }, { label: 'Attendance', path: '/attendance' }, { label: 'Leave Management', path: '/leave' }] },
     { label: 'Finance', icon: 'finance', items: [{ label: 'Revenue & Invoices', path: '/finance' }, { label: 'Payment Reminders', path: '/reminders' }, { label: 'Expenses', path: '/expenses' }] },
-    { label: 'Reports', icon: 'reports', items: [{ label: 'Reports', path: '/reports' }] }
+    { label: 'Reports', icon: 'reports', items: [{ label: 'Reports', path: '/reports' }] },
+    { label: 'Settings', icon: 'settings', items: [{ label: 'Bulk Import', path: '/bulk-import' }] }
   ],
   reception_admin: [
     { label: 'My Workspace', icon: 'dashboard', items: [{ label: 'Dashboard', path: '/dashboard' }, { label: 'Attendance', path: '/attendance' }, { label: 'Leave Management', path: '/leave' }, { label: 'My Payroll', path: '/payroll' }, { label: 'My Documents', path: '/documents' }] },

@@ -334,6 +334,7 @@ export default function PageContent({ path, user }) {
    if (isApiEnabled) {
      setSaving(true);
      try {
+       let createdRecord = null;
        if (editingId) {
          const original = rows.find((row) => row._recordId === editingId) || {};
          const changes = Object.fromEntries(Object.entries(record).filter(([key, value]) =>
@@ -346,16 +347,25 @@ export default function PageContent({ path, user }) {
          }
          await updateApiRecord(path, editingId, record, changes);
        }
-       else await createApiRecord(path, record);
+       else createdRecord = await createApiRecord(path, record);
        await refreshApiRecords();
-       const createdLogin = !editingId && user.role === 'super_admin' && ['/customers', '/employees'].includes(path);
+       const createdLogin = !editingId && ['/customers', '/employees'].includes(path);
        const successMessage = editingId
          ? 'Record updated successfully.'
          : createdLogin
-           ? `Record added. Login: ${record.email}; default password: nanospace123.`
+           ? createdRecord?.welcomeEmail?.sent
+             ? `Record added. Welcome email sent to ${record.email} with user ID and secure password setup instructions.`
+             : createdRecord?.welcomeEmail?.simulated
+               ? 'Record added. Email delivery is simulated in this environment; configure SMTP to send the welcome email.'
+               : createdRecord?.loginCreated || createdRecord?.welcomeEmail
+                 ? 'Record added, but the welcome email could not be delivered. Check SMTP settings and resend password instructions.'
+                 : 'Record added successfully.'
            : 'Record added successfully.';
-       setNotice({ color: 'success', text: successMessage });
-       showSuccess(successMessage);
+       const emailFailed = !editingId && createdLogin && createdRecord?.welcomeEmail &&
+         !createdRecord?.welcomeEmail?.sent && !createdRecord?.welcomeEmail?.simulated;
+       setNotice({ color: emailFailed ? 'warning' : 'success', text: successMessage });
+       if (emailFailed) showError(successMessage);
+       else showSuccess(successMessage);
        setModalOpen(false);
      } catch (error) {
        console.error(`Could not save ${path} record:`, error);

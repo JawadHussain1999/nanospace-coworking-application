@@ -2,6 +2,7 @@ import { Provider } from 'react-redux';
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { makeStore } from '../store';
 import { hydrateInventory } from '../store/slices/inventorySlice';
 import { hydrateAttendance } from '../store/slices/attendanceSlice';
@@ -44,12 +45,38 @@ export default function App({ Component, pageProps }) {
 }
 
 function AppContent({ Component, pageProps }) {
+  const router = useRouter();
   const dispatch = useDispatch();
   const inventory = useSelector((state) => state.inventory);
   const attendance = useSelector((state) => state.attendance);
   const userAccounts = useSelector((state) => state.userAccounts);
   const workspace = useSelector((state) => state.workspace);
   const demoDataLoaded = useSelector((state) => state.app.demoDataLoaded);
+  const [routeLoading, setRouteLoading] = useState(false);
+
+  useEffect(() => {
+    let showLoaderTimeout;
+    const handleRouteStart = (_url, { shallow } = {}) => {
+      if (shallow) return;
+      clearTimeout(showLoaderTimeout);
+      showLoaderTimeout = setTimeout(() => setRouteLoading(true), 120);
+    };
+    const handleRouteEnd = () => {
+      clearTimeout(showLoaderTimeout);
+      setRouteLoading(false);
+    };
+
+    router.events.on('routeChangeStart', handleRouteStart);
+    router.events.on('routeChangeComplete', handleRouteEnd);
+    router.events.on('routeChangeError', handleRouteEnd);
+
+    return () => {
+      clearTimeout(showLoaderTimeout);
+      router.events.off('routeChangeStart', handleRouteStart);
+      router.events.off('routeChangeComplete', handleRouteEnd);
+      router.events.off('routeChangeError', handleRouteEnd);
+    };
+  }, [router.events]);
 
   useEffect(() => {
     if (isApiEnabled) {
@@ -123,5 +150,14 @@ function AppContent({ Component, pageProps }) {
     });
   }, [attendance, demoDataLoaded, inventory, userAccounts, workspace]);
 
-  return <Component {...pageProps} />;
+  return (
+    <>
+      <Component {...pageProps} />
+      {routeLoading && (
+        <div className="page-transition-loader" role="status" aria-label="Loading page" aria-live="polite" aria-busy="true">
+          <span className="page-transition-progress" aria-hidden="true" />
+        </div>
+      )}
+    </>
+  );
 }

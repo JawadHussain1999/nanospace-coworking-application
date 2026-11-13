@@ -4,11 +4,14 @@ if(!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Erro
 const app=require('./app');
 const pool=require('./db/pool');
 const {startRazorpayBookingCleanup}=require('./utils/razorpayBookingCleanup');
+const {startDailyBackupScheduler}=require('./utils/dailyBackups');
 const port=Number(process.env.PORT||5000);
 const server=app.listen(port,()=>console.log(`NanoSpace API listening on port ${port}`));
 startRazorpayBookingCleanup();
+const stopDailyBackupScheduler=startDailyBackupScheduler(pool);
 async function shutdown(signal){
  console.log(`${signal} received; shutting down...`);
+ stopDailyBackupScheduler();
  server.close(async()=>{await pool.end();process.exit(0);});
  setTimeout(()=>process.exit(1),10000).unref();
 }

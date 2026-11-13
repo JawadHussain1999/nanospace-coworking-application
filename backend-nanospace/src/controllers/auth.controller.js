@@ -5,7 +5,12 @@ const jwt = require('jsonwebtoken');
 const pool = require('../models/database.model');
 const asyncHandler = require('../utils/asyncHandler');
 const { authenticate } = require('../middleware/auth');
-const { sendOtpEmail, sendPasswordResetEmail } = require('../utils/mailer');
+const {
+  sendOtpEmail,
+  sendPasswordResetEmail,
+  sendPasswordChangedEmail,
+  sendAccountWelcomeEmail,
+} = require('../utils/mailer');
 
 const router = express.Router();
 
@@ -173,9 +178,21 @@ router.post('/signup', asyncHandler(async (req, res) => {
     client.release();
   }
 
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const emailResult = await sendAccountWelcomeEmail({
+    email,
+    userName: fullName,
+    userId: email,
+    role: 'Customer',
+    loginUrl: `${frontendUrl}/`,
+  });
   res.status(201).json({
     success: true,
     message: 'Your NanoSpace customer account is ready. You can now sign in.',
+    welcomeEmail: {
+      sent: Boolean(emailResult.success && !emailResult.isMock),
+      simulated: Boolean(emailResult.isMock && process.env.NODE_ENV !== 'production'),
+    },
   });
 }));
 
@@ -255,9 +272,11 @@ router.post('/reset-password', asyncHandler(async (req, res) => {
   try {
     await client.query('BEGIN');
     const tokenResult = await client.query(
-      `SELECT user_id FROM password_reset_tokens
-       WHERE token_hash = $1 AND expires_at > NOW()
-       FOR UPDATE`,
+      `SELECT reset_token.user_id, users.email, users.full_name
+       FROM password_reset_tokens reset_token
+       JOIN users ON users.id = reset_token.user_id
+       WHERE reset_token.token_hash = $1 AND reset_token.expires_at > NOW()
+       FOR UPDATE OF reset_token`,
       [tokenHash]
     );
     if (!tokenResult.rowCount) {
@@ -265,13 +284,18 @@ router.post('/reset-password', asyncHandler(async (req, res) => {
       return res.status(400).json({ error: 'This password reset link is invalid or has expired. Request a new one.' });
     }
 
-    const userId = tokenResult.rows[0].user_id;
+    const user = tokenResult.rows[0];
     await client.query(
       'UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1',
-      [userId, passwordHash]
+      [user.user_id, passwordHash]
     );
-    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.user_id]);
     await client.query('COMMIT');
+
+    const emailResult = await sendPasswordChangedEmail(user.email, user.full_name);
+    if (!emailResult.success) {
+      console.error(`Password changed, but security email could not be delivered for user ${user.user_id}:`, emailResult.error || 'Unknown delivery error');
+    }
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

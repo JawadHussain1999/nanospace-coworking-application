@@ -215,8 +215,17 @@ export default function QuotationBuilder({ user, onSaved }) {
         if (!assignedNumber) throw new Error('The saved quotation did not include its quotation number.');
         setSavedQuoteNumber(assignedNumber);
         setApiQuotations((current) => [record, ...current]);
-        setNotice(`Quotation ${assignedNumber} saved successfully.`);
-        showSuccess(`Quotation ${assignedNumber} saved successfully.`);
+        const emailMessage = record.emailStatus === 'sent'
+          ? ' and emailed to the customer'
+          : record.emailStatus === 'failed'
+            ? ', but the customer email could not be delivered'
+            : record.emailStatus === 'no_email'
+              ? ' (no deliverable customer email is on file)'
+              : '';
+        const message = `Quotation ${assignedNumber} saved successfully${emailMessage}.`;
+        setNotice(message);
+        if (record.emailStatus === 'failed') showError(message);
+        else showSuccess(message);
         onSaved?.();
         return assignedNumber;
       }
@@ -601,8 +610,10 @@ export default function QuotationBuilder({ user, onSaved }) {
 
     setEmailBusy(true);
     try {
-      const assignedNumber = quotationSaved ? quoteNumber : await saveDraft();
+      const needsSave = !quotationSaved;
+      const assignedNumber = needsSave ? await saveDraft() : quoteNumber;
       if (!assignedNumber) return;
+      if (needsSave) return;
       const response = await api.quotations.sendEmail(assignedNumber);
       const record = getApiPayload(response);
       setApiQuotations((current) => current.map((quotation) => (

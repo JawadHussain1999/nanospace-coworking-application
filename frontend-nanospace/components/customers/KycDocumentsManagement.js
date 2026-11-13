@@ -267,7 +267,7 @@ export default function KycDocumentsManagement({ user }) {
         <div className="d-flex gap-2">
           <Button color="light" size="sm" onClick={() => downloadDocument(doc)} aria-label={`Download ${doc.fileName}`}><FiDownload /></Button>
           <Button color="light" size="sm" disabled={busy} onClick={() => promptDeleteDocument(doc)} aria-label={`Delete ${doc.fileName}`}><FiTrash2 /></Button>
-          {canReview && !isApiEnabled && doc.status === 'Pending' && (
+          {canReview && doc.status === 'Pending' && (
             <>
               <Button color="success" size="sm" disabled={busy} onClick={() => changeStatus(doc, 'Approved')} aria-label={`Approve ${doc.fileName}`}><FiCheck /></Button>
               <Button color="danger" size="sm" disabled={busy} onClick={() => changeStatus(doc, 'Rejected')} aria-label={`Reject ${doc.fileName}`}><FiX /></Button>
@@ -290,7 +290,6 @@ export default function KycDocumentsManagement({ user }) {
       </div>
 
       {notice && <Alert color={notice.color} toggle={() => setNotice(null)}>{notice.text}</Alert>}
-      {isApiEnabled && canReview && <Alert color="warning">Document approval and rejection are unavailable until the backend adds a document status endpoint.</Alert>}
 
       <Card className="panel-card border-0 mb-4">
         <CardBody>

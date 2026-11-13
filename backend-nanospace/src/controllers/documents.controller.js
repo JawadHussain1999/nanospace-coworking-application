@@ -170,15 +170,22 @@ router.post('/upload', upload.single('file'), ah(async (req, res) => {
 }));
 
 router.patch('/:id/status', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), ah(async (req, res) => {
-  const { status } = req.body;
-  const normalized = String(status).toUpperCase();
-  const result = await pool.query(
-    `UPDATE documents
-     SET status=$2, reviewed_by=$3, reviewed_at=NOW(), updated_at=NOW()
-     WHERE id=$1
-     RETURNING id, document_type, file_name, status, reviewed_at`,
-    [req.params.id, normalized, req.user.id]
-  );
+  const status = typeof req.body?.status === 'string' ? req.body.status.trim().toUpperCase() : '';
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ error: 'Document status must be APPROVED or REJECTED.' });
+  }
+
+  const params = [req.params.id, status, req.user.id];
+  let sql = `UPDATE documents
+             SET status=$2, reviewed_by=$3, reviewed_at=NOW(), updated_at=NOW()
+             WHERE id=$1`;
+  if (req.user.role !== 'SUPER_ADMIN') {
+    params.push(req.user.branch_id);
+    sql += ` AND branch_id=$${params.length}`;
+  }
+  sql += ' RETURNING id, document_type, file_name, status, reviewed_at';
+
+  const result = await pool.query(sql, params);
   if (!result.rowCount) return res.status(404).json({ error: 'Document not found.' });
   res.json({ data: result.rows[0] });
 }));

@@ -2,6 +2,11 @@ const idPath = (id) => `/${encodeURIComponent(String(id))}`;
 
 export const apiEndpoints = {
   health: '/health',
+  backups: {
+    list: '/backups',
+    create: '/backups',
+    download: (id) => `/backups/${encodeURIComponent(String(id))}/download`,
+  },
   auth: {
     login: '/auth/login',
     signupBranches: '/auth/signup/branches',
@@ -76,6 +81,7 @@ export const apiEndpoints = {
   attendance: {
     list: '/attendance',
     detail: (id) => `/attendance${idPath(id)}`,
+    import: '/attendance/import',
     checkIn: '/attendance/check-in',
     checkOut: '/attendance/check-out',
     update: (id) => `/attendance${idPath(id)}`,

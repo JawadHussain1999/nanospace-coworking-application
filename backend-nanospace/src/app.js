@@ -17,6 +17,7 @@ app.use('/api/auth/reset-password',rateLimit({windowMs:15*60*1000,limit:10,stand
 app.get('/api/health',(req,res)=>res.json({status:'ok',service:'nanospace-api',timestamp:new Date().toISOString()}));
 app.use('/api/auth',require('./routes/auth.routes'));
 app.use('/api',authenticate);
+app.use('/api/backups',require('./routes/backups.routes'));
 app.use('/api/branches',require('./routes/branches.routes'));
 app.use('/api/users',require('./routes/users.routes'));
 app.use('/api/customers',require('./routes/customers.routes'));

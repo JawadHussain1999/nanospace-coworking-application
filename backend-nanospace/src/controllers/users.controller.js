@@ -1,8 +1,11 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../models/database.model');
 const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
+const { createPasswordSetupLink } = require('../utils/accountWelcome');
+const { sendAccountWelcomeEmail } = require('../utils/mailer');
 
 router.get('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) => {
   const result = req.user.role === 'SUPER_ADMIN'
@@ -40,7 +43,11 @@ router.get('/:id', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res
 
 router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) => {
   const { fullName, email, password, role, branchId, branch } = req.body;
-  if (!fullName || !email || !role) return res.status(400).json({ error: 'fullName, email and role are required.' });
+  const normalizedName = String(fullName || '').trim();
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || !role) {
+    return res.status(400).json({ error: 'A full name, valid email and role are required.' });
+  }
   const allowed = ['SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN', 'EMPLOYEE', 'CUSTOMER'];
   const normalizedRole = String(role).toUpperCase().replace(/[\s-]+/g, '_');
   if (req.user.role === 'BRANCH_ADMIN' && !['RECEPTION_ADMIN', 'EMPLOYEE', 'CUSTOMER'].includes(normalizedRole)) {
@@ -58,17 +65,18 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) 
     assignedBranch = bRes.rows[0]?.id || null;
   }
 
-  const pass = password || 'nanospace123';
+  const pass = password || crypto.randomBytes(32).toString('hex');
   const hash = await bcrypt.hash(pass, 12);
   const client = await pool.connect();
   let createdUser;
+  let passwordSetupUrl;
   try {
     await client.query('BEGIN');
     const result = await client.query(
       `INSERT INTO users(full_name, email, password_hash, role, branch_id)
        VALUES($1, $2, $3, $4, $5)
        RETURNING id, full_name, email, role, branch_id, is_active, created_at`,
-      [fullName.trim(), email.trim().toLowerCase(), hash, normalizedRole, assignedBranch]
+      [normalizedName, normalizedEmail, hash, normalizedRole, assignedBranch]
     );
     createdUser = result.rows[0];
 
@@ -76,10 +84,11 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) 
       await client.query(
         `INSERT INTO customers(user_id, branch_id, full_name, email, phone, company_name)
          VALUES($1, $2, $3, $4, $5, $6)`,
-        [createdUser.id, assignedBranch, fullName.trim(), email.trim().toLowerCase(), req.body.phone || null, req.body.companyName || null]
+        [createdUser.id, assignedBranch, normalizedName, normalizedEmail, req.body.phone || null, req.body.companyName || null]
       );
     }
 
+    passwordSetupUrl = await createPasswordSetupLink(client, createdUser.id);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -87,7 +96,24 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) 
   } finally {
     client.release();
   }
-  res.status(201).json({ data: createdUser });
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const emailResult = await sendAccountWelcomeEmail({
+    email: createdUser.email,
+    userName: createdUser.full_name,
+    userId: createdUser.email,
+    role: createdUser.role,
+    loginUrl: `${frontendUrl}/`,
+    passwordSetupUrl,
+  });
+  res.status(201).json({
+    data: {
+      ...createdUser,
+      welcomeEmail: {
+        sent: Boolean(emailResult.success && !emailResult.isMock),
+        simulated: Boolean(emailResult.isMock && process.env.NODE_ENV !== 'production'),
+      },
+    },
+  });
 }));
 
 router.patch('/:id/status', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN'), ah(async (req, res) => {

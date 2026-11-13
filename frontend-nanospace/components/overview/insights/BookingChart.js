@@ -14,8 +14,8 @@ const CustomBarTooltip = ({ active, payload, label }) => {
         padding: '10px 14px',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
       }}>
-        <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '12px', color: '#1e293b' }}>{label}</p>
-        <div style={{ fontSize: '12px', color: '#3b82f6', fontWeight: 600 }}>
+        <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '13.5px', color: '#1e293b' }}>{label}</p>
+        <div style={{ fontSize: '13.5px', color: '#3b82f6', fontWeight: 600 }}>
           Revenue: ₹{Number(payload[0].value).toLocaleString('en-IN')}
         </div>
       </div>
@@ -34,8 +34,8 @@ export default function BookingChart({ branch = "All branches", data: apiData })
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 12, right: 6, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-          <XAxis dataKey="branch" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }} dy={8} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+          <XAxis dataKey="branch" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5, fontWeight: 500 }} dy={8} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} width={58} />
           <Tooltip content={<CustomBarTooltip />} />
           <Bar dataKey="revenue" radius={[8, 8, 0, 0]} maxBarSize={38}>
             {data.map((_, index) => (

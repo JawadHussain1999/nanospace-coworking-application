@@ -14,9 +14,9 @@ const CustomTooltip = ({ active, payload, label }) => {
         padding: '10px 14px',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
       }}>
-        <p style={{ margin: '0 0 6px', fontWeight: 700, fontSize: '12px', color: '#1e293b' }}>{label}</p>
+        <p style={{ margin: '0 0 6px', fontWeight: 700, fontSize: '13.5px', color: '#1e293b' }}>{label}</p>
         {payload.map((entry, index) => (
-          <div key={`item-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', margin: '3px 0' }}>
+          <div key={`item-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', margin: '3px 0' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: entry.color }} />
             <span style={{ color: '#64748b' }}>{entry.name}:</span>
             <strong style={{ color: '#0f172a' }}>₹{Number(entry.value).toLocaleString('en-IN')}</strong>
@@ -53,20 +53,20 @@ export default function RevenueChart({ branch = "All branches", monthlyData, sel
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }} dy={8} />
-            <YAxis tickFormatter={money} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={50} />
+            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5, fontWeight: 500 }} dy={8} />
+            <YAxis tickFormatter={money} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5 }} width={58} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }} />
+            <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px', fontSize: '13.5px' }} />
             <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#3b82f6" strokeWidth={3} fill="url(#revGrad)" dot={{ r: 3, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, stroke: '#3b82f6', strokeWidth: 3, fill: '#fff' }} />
             <Area type="monotone" dataKey="expenses" name="Expenses" stroke="#f59e0b" strokeWidth={2.5} fill="url(#expGrad)" strokeDasharray="4 4" />
           </AreaChart>
         ) : (
           <BarChart data={branchData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="branch" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} dy={8} />
-            <YAxis tickFormatter={money} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={50} />
+            <XAxis dataKey="branch" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5 }} dy={8} />
+            <YAxis tickFormatter={money} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12.5 }} width={58} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }} />
+            <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px', fontSize: '13.5px' }} />
             <Bar dataKey="revenue" name="Revenue" fill="url(#revGrad)" stroke="#3b82f6" strokeWidth={1} radius={[8, 8, 0, 0]} maxBarSize={48} />
           </BarChart>
         )}

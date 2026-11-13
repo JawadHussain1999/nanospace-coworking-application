@@ -36,15 +36,13 @@ export default function Sidebar({ user, open, onClose }) {
   const [expanded, setExpanded] = useState(() => {
     const initialState = {};
     menu.forEach((group) => {
-      const hasActiveChild = group.items.some(
+      initialState[group.label] = group.items.some(
         (item) => item.path === router.pathname || router.asPath.startsWith(item.path)
       );
-      initialState[group.label] = hasActiveChild;
     });
     return initialState;
   });
 
-  // Auto-expand group when path changes
   useEffect(() => {
     menu.forEach((group) => {
       const hasActiveChild = group.items.some(
@@ -56,18 +54,10 @@ export default function Sidebar({ user, open, onClose }) {
     });
   }, [router.pathname, router.asPath]);
 
-
   return (
     <>
-      <div
-        className={`sidebar-backdrop ${open ? "show" : ""}`}
-        onClick={onClose}
-      />
+      <div className={`sidebar-backdrop ${open ? "show" : ""}`} onClick={onClose} />
       <aside className={`app-sidebar ${open ? "mobile-open" : ""}`}>
-        {/* Ambient Glow Elements */}
-        <div className="sidebar-ambient-glow" />
-
-        {/* Brand Header */}
         <div className="brand-wrap">
           <Link href="/dashboard" className="brand-link">
             <img
@@ -81,7 +71,6 @@ export default function Sidebar({ user, open, onClose }) {
           </button>
         </div>
 
-        {/* Luxury Workspace Hub Selector */}
         <div className="workspace-pill">
           <div className="workspace-badge">
             <FiLayers className="workspace-badge-icon" />
@@ -100,7 +89,6 @@ export default function Sidebar({ user, open, onClose }) {
           </div>
         </div>
 
-        {/* Navigation Section */}
         <div className="nav-caption-row">
           <span className="nav-caption">NAVIGATION</span>
         </div>
@@ -129,11 +117,7 @@ export default function Sidebar({ user, open, onClose }) {
                   </span>
                   <span className="nav-group-label">{group.label}</span>
                   <span className="nav-group-chevron">
-                    {isExpanded ? (
-                      <FiChevronDown size={13} />
-                    ) : (
-                      <FiChevronRight size={13} />
-                    )}
+                    {isExpanded ? <FiChevronDown size={13} /> : <FiChevronRight size={13} />}
                   </span>
                 </button>
                 {isExpanded && (
