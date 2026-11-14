@@ -23,8 +23,8 @@ export default function App({ Component, pageProps }) {
     <Provider store={store}>
       <AuthProvider>
         <Head>
-          <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png" />
-          <link rel="apple-touch-icon" href="/favicon.png" />
+          <link rel="icon" type="image/png" href="/Favicon.png" />
+          <link rel="apple-touch-icon" href="/Favicon.png" />
         </Head>
         <AppContent Component={Component} pageProps={pageProps} />
         <ToastContainer

@@ -24,7 +24,7 @@ Starter REST API for the NanoSpace co-working management system, based on the su
    ```
 4. API runs on the port configured in `.env` (the included local configuration uses `http://localhost:5001`). Check `GET /api/health`.
 
-The seed script creates a Super Admin from `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` environment variables. It requires all three values and a password of at least 12 characters; it does not use default credentials.
+The seed script creates a Super Admin from `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` environment variables. It requires all three values and limits the password to 72 UTF-8 bytes (bcrypt's limit); choose a long, unique password. It does not use default credentials.
 
 `npm run seed:demo` adds sample branches, staff and customer accounts, inventory, workspaces, bookings, quotations, complaints, and read/unread notifications for testing the dashboard. It is safe to rerun; demo users share `DEMO_USER_PASSWORD` (defaults to `Demo@12345`). Change that value in `.env` before using demo accounts outside a local machine. The script prints live dashboard-related row counts after seeding.
 Seeded workspaces are published and available to the booking flow. For real deployments, create each bookable room as an active workspace and publish its floor before accepting bookings; unpublished or missing workspaces are intentionally excluded from availability.
@@ -53,6 +53,8 @@ Password reset and account welcome emails use the existing `SMTP_HOST`, `SMTP_PO
 
 Customer lifecycle emails use the same SMTP settings: booking creation, confirmation/status or schedule changes, cancellations, verified payments, quotation creation/email, password reset links, and password-change alerts. A booking created from the shared Razorpay link remains pending until staff verifies the payment; the request email explains this manual verification. Customer email delivery is skipped for placeholder `@example.com` addresses. SMTP delivery failures are logged and do not undo saved bookings, payments, quotations, or password changes.
 
+Customer creation can verify a GSTIN through Surepass and fill the registered company name automatically. Set `SUREPASS_TOKEN` in the backend environment; optionally set `SUREPASS_BASE_URL` to Surepass's sandbox API base URL when testing. The authenticated endpoint is `GET /api/customers/gstin/:gstin`; the token stays server-side.
+
 ## Database backups
 
 The backend creates a full ZIP of CSV files for the tables in the PostgreSQL `public` schema once per India calendar day. If the backend is offline at the scheduled time, it creates the missing backup when it starts. The ZIP includes a JSON manifest with per-table row counts. The internal `application_backups` table is excluded to avoid recursively backing up older archives.
@@ -64,7 +66,7 @@ Archives are stored in the application database, and automatic and manual archiv
 ### Auth
 - `POST /api/auth/login`
 - `POST /api/auth/forgot-password` with `{ "email": "..." }`. Returns the same response for existing and unknown accounts. Configure SMTP and `FRONTEND_URL` to deliver reset links; links expire in 30 minutes and are single-use.
-- `POST /api/auth/reset-password` with `{ "token": "...", "password": "..." }`. Passwords must be at least 12 characters and no more than 72 UTF-8 bytes.
+- `POST /api/auth/signup` accepts a user-chosen password. `POST /api/auth/reset-password` accepts `{ "token": "...", "password": "..." }`. Passwords must be non-empty and are limited to 72 UTF-8 bytes by bcrypt. The UI offers a non-blocking strength recommendation.
 - `GET /api/auth/me` (authenticated)
 
 ### Branches

@@ -35,6 +35,7 @@ export const apiEndpoints = {
   customers: {
     list: '/customers',
     create: '/customers',
+    gstinLookup: (gstin) => `/customers/gstin/${encodeURIComponent(String(gstin))}`,
     detail: (id) => `/customers${idPath(id)}`,
     update: (id) => `/customers${idPath(id)}`,
     documents: (id) => `/customers${idPath(id)}/documents`,

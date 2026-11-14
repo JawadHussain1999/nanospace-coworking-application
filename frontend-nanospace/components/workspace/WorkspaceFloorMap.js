@@ -39,6 +39,10 @@ const normalizeStatus = (status) => {
 
 const branchKey = (value) => String(value?.name || value || '').trim().toLowerCase();
 const floorLabel = (index) => ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'][index] || `Floor ${index + 1}`;
+const getLocalDateKey = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 export default function WorkspaceFloorMap({
   initialBranch = 'Nanakramguda',
@@ -71,7 +75,7 @@ export default function WorkspaceFloorMap({
   const [statusFilter, setStatusFilter] = useState('All');
   const [currentAvailability, setCurrentAvailability] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDate, setSelectedDate] = useState(availabilityDate || new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(availabilityDate || getLocalDateKey());
   const [localSelectedSpaceId, setLocalSelectedSpaceId] = useState(null);
   const [layoutObjects, setLayoutObjects] = useState([]);
   const [layoutHasDraft, setLayoutHasDraft] = useState(false);

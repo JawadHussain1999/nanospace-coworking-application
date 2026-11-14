@@ -298,7 +298,7 @@ export default function UserAccountsManagement({ user: propUser } = {}) {
         )}
       </Card>
 
-      <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered>
+      <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered size="lg">
         <ModalHeader toggle={() => setModalOpen(false)}>
           {editingEmail ? 'Edit user account & role' : 'Add user account'}
         </ModalHeader>
@@ -309,7 +309,7 @@ export default function UserAccountsManagement({ user: propUser } = {}) {
               As <strong>Super Admin</strong>, you can change this user&apos;s role, branch, and access privileges.
             </Alert>
           )}
-          <Form onSubmit={saveAccount}>
+          <Form onSubmit={saveAccount} className="modal-compact-form">
             <FormGroup>
               <Label for="account-name">Full name</Label>
               <Input
@@ -381,7 +381,7 @@ export default function UserAccountsManagement({ user: propUser } = {}) {
                 <option>Inactive</option>
               </Input>
             </FormGroup>
-            <div className="d-flex justify-content-end gap-2 mt-4">
+            <div className="modal-compact-form-actions d-flex justify-content-end gap-2 mt-4">
               <Button color="light" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
               <Button color="primary" className="btn-primary-custom" type="submit" disabled={busy}>
                 {busy ? <Spinner size="sm" className="me-2" /> : null}

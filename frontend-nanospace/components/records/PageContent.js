@@ -34,6 +34,8 @@ const formatWorkspaceType = (value) => {
   if (type.includes('OPEN')) return 'Open workspace';
   return type ? type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : '—';
 };
+const customerMembershipOptions = ['Hot Desk', 'Dedicated Desk', 'Dedicated Member', 'Private Cabin', 'Private Office'];
+const customerGstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/i;
 const dataByPath = {
   '/quotations': { title: 'Quotations', desc: 'Create, share and track workspace proposals.', action: 'Create quotation', cols: [{key:'id',label:'Quote ID'},{key:'customer',label:'Customer'},{key:'branch',label:'Branch'},{key:'date',label:'Created date'},{key:'amount',label:'Amount'},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
   '/bookings': { title: 'Bookings', desc: 'Manage online and walk-in workspace bookings.', action: 'New booking', cols: [{key:'id',label:'Booking ID'},{key:'customer',label:'Customer'},{key:'company_name',label:'Company',form:false},{key:'customer_email',label:'Email',form:false},{key:'branch',label:'Branch'},{key:'workspace',label:'Workspace'},{key:'workspace_type',label:'Workspace type',form:false,render:(v)=>formatWorkspaceType(v)},{key:'plan_name',label:'Selected plan',form:false},{key:'seat_count',label:'Seats',form:false,render:(v)=>Number(v) > 0 ? Number(v) : '—'},{key:'date',label:'From date',render:(_,row)=>formatBookingDate(row.starts_at || row.date)},{key:'ends_at',label:'To date',form:false,render:(v)=>formatBookingDate(v)},{key:'amount',label:'Total amount'},{key:'advance_amount',label:'Advance paid',render:(v)=>`₹${Number(v || 0).toLocaleString('en-IN')}`},{key:'status',label:'Status',render:(v)=><StatusBadge status={v}/> }], rows: [] },
@@ -111,6 +113,7 @@ export default function PageContent({ path, user }) {
  const [recordToDelete, setRecordToDelete] = useState(null);
  const [form, setForm] = useState({});
  const [formErrors, setFormErrors] = useState({});
+ const [gstinLookup, setGstinLookup] = useState({ status: 'idle', message: '', details: null });
  const [branchPaymentOpen, setBranchPaymentOpen] = useState(false);
  const [branchPaymentBranch, setBranchPaymentBranch] = useState(null);
  const [branchPaymentForm, setBranchPaymentForm] = useState({ keyId: '', keySecret: '' });
@@ -123,6 +126,41 @@ export default function PageContent({ path, user }) {
  const canCreate = (isManager && !['/reports', '/analytics', '/audit-logs'].includes(path)) || (user.role === 'customer' && ['/complaints', '/book-workspace'].includes(path)) || (user.role === 'employee' && path === '/leave');
  const canEdit = (isManager && !['/reports', '/analytics', '/audit-logs'].includes(path)) || (user.role === 'customer' && ['/complaints', '/bookings'].includes(path)) || (user.role === 'employee' && path === '/leave');
  const canDelete = isManager;
+
+ useEffect(() => {
+   if (path !== '/customers' || !modalOpen || editingId || !isApiEnabled) return undefined;
+   const gstin = String(form.gstin || '').trim().toUpperCase();
+   if (!customerGstinPattern.test(gstin)) return undefined;
+
+   const controller = new AbortController();
+   let active = true;
+   const timeoutId = window.setTimeout(() => {
+     setGstinLookup({ status: 'loading', message: '', details: null });
+     api.customers.lookupGstin(gstin, { signal: controller.signal })
+       .then((response) => {
+         const details = response?.data || response;
+         if (!details?.companyName) throw new Error('GSTIN lookup returned no registered company name.');
+         if (!active) return;
+         setForm((current) => ({ ...current, companyName: details.companyName }));
+         setGstinLookup({ status: 'success', message: '', details });
+       })
+       .catch((error) => {
+         if (!active || controller.signal.aborted) return;
+         console.error('Could not look up customer GSTIN:', error);
+         setGstinLookup({
+           status: 'error',
+           message: getApiErrorMessage(error, 'GSTIN details could not be loaded. Please try again or enter the company name manually.'),
+           details: null,
+         });
+       });
+   }, 350);
+
+   return () => {
+     active = false;
+     window.clearTimeout(timeoutId);
+     controller.abort();
+   };
+ }, [editingId, form.gstin, modalOpen, path]);
 
  useEffect(() => {
    if (isApiEnabled) return;
@@ -270,6 +308,7 @@ export default function PageContent({ path, user }) {
  const openAdd = () => {
    setEditingId(null);
    setFormErrors({});
+   setGstinLookup({ status: 'idle', message: '', details: null });
    setForm(makeEmptyForm());
    setModalOpen(true);
  };
@@ -277,7 +316,13 @@ export default function PageContent({ path, user }) {
  const openEdit = (row) => {
    setEditingId(row._recordId);
    setFormErrors({});
-   setForm({ ...row });
+   setGstinLookup({ status: 'idle', message: '', details: null });
+   setForm({
+     ...row,
+     ...(path === '/customers'
+       ? { advance_amount: row.customer_advance_amount ?? row.advance_amount }
+       : {}),
+   });
    setModalOpen(true);
  };
 
@@ -316,6 +361,16 @@ export default function PageContent({ path, user }) {
      }
      if (record.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(String(record.panNumber).trim())) {
        errors.panNumber = 'Enter a valid 10-character PAN, or leave it blank.';
+     }
+   }
+   if (path === '/customers') {
+     const advanceAmount = record.advance_amount === '' || record.advance_amount == null
+       ? 0
+       : Number(record.advance_amount);
+     if (!Number.isFinite(advanceAmount) || advanceAmount < 0) {
+       errors.advance_amount = 'Advance paid must be a non-negative amount.';
+     } else {
+       record.advance_amount = advanceAmount;
      }
    }
    if (Object.keys(errors).length > 0) {
@@ -811,9 +866,18 @@ export default function PageContent({ path, user }) {
      />
    )}
 
-   <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered>
+   <Modal
+     isOpen={modalOpen}
+     toggle={() => setModalOpen(false)}
+     centered
+     size={config.cols.filter((column) => column.key !== 'id' && column.form !== false).length >= 4 ? 'lg' : undefined}
+   >
      <ModalHeader toggle={() => setModalOpen(false)}>{editingId ? `Edit ${config.title.toLowerCase()} record` : config.action}</ModalHeader>
-     <ModalBody><Form onSubmit={saveRecord} noValidate>
+     <ModalBody><Form
+       onSubmit={saveRecord}
+       noValidate
+       className={config.cols.filter((column) => column.key !== 'id' && column.form !== false).length >= 4 ? 'modal-compact-form' : ''}
+     >
        {config.cols.filter((column) => column.key !== 'id' && column.form !== false).map((column) => {
          const key = column.key;
          const statusOnlyApi = isApiEnabled && ['/bookings', '/complaints', '/quotations'].includes(path);
@@ -856,6 +920,46 @@ export default function PageContent({ path, user }) {
            {formErrors[key] && <FormFeedback>{formErrors[key]}</FormFeedback>}
          </FormGroup>;
          if (key === 'role') return <FormGroup key={key}><Label for={`record-${key}`}>{column.label} {user.role === 'super_admin' ? <Badge color="primary" className="ms-1">Editable</Badge> : null}</Label><Input id={`record-${key}`} type="select" value={form[key] || 'employee'} disabled={user.role !== 'super_admin'} onChange={(event) => setForm({ ...form, [key]: event.target.value })}><option value="super_admin">Super Admin</option><option value="branch_admin">Branch Admin</option><option value="reception_admin">Reception Admin</option><option value="employee">Employee</option><option value="customer">Customer</option></Input></FormGroup>;
+         if (path === '/customers' && key === 'plan') {
+           const membershipOptions = form.plan && !customerMembershipOptions.includes(form.plan)
+             ? [form.plan, ...customerMembershipOptions]
+             : customerMembershipOptions;
+           return (
+             <FormGroup key={key}>
+               <Label for="record-plan">{column.label}</Label>
+               <Input
+                 id="record-plan"
+                 type="select"
+                 value={form.plan ?? ''}
+                 onChange={(event) => setForm({ ...form, plan: event.target.value })}
+               >
+                 <option value="">Select membership</option>
+                 <option value="Non-member">No membership</option>
+                 {membershipOptions.map((membership) => <option key={membership} value={membership}>{membership}</option>)}
+               </Input>
+             </FormGroup>
+           );
+         }
+         if (path === '/customers' && key === 'advance_amount') {
+           return (
+             <FormGroup key={key}>
+               <Label for="record-advance_amount">{column.label}</Label>
+               <Input
+                 id="record-advance_amount"
+                 type="number"
+                 min="0"
+                 step="0.01"
+                 invalid={Boolean(formErrors[key])}
+                 value={form.advance_amount ?? ''}
+                 onChange={(event) => {
+                   setForm({ ...form, advance_amount: event.target.value });
+                   if (formErrors[key]) setFormErrors({ ...formErrors, [key]: null });
+                 }}
+               />
+               {formErrors[key] && <FormFeedback>{formErrors[key]}</FormFeedback>}
+             </FormGroup>
+           );
+         }
          if (path === '/branches' && key === 'code') return <FormGroup key={key}>
            <Label for={`record-${key}`}>{column.label} <span className="text-danger">*</span></Label>
            <Input
@@ -919,11 +1023,33 @@ export default function PageContent({ path, user }) {
                invalid={Boolean(formErrors.gstin)}
                value={form.gstin ?? ''}
                onChange={(event) => {
-                 setForm({ ...form, gstin: event.target.value.toUpperCase() });
+                 const gstin = event.target.value.toUpperCase();
+                 const isValidGstin = customerGstinPattern.test(gstin);
+                 setForm({ ...form, gstin });
+                 setGstinLookup({
+                   status: isValidGstin && !isApiEnabled ? 'unavailable' : 'idle',
+                   message: isValidGstin && !isApiEnabled
+                     ? 'GSTIN lookup requires API mode and a configured Surepass token.'
+                     : '',
+                   details: null,
+                 });
                  if (formErrors.gstin) setFormErrors({ ...formErrors, gstin: null });
                }}
              />
              {formErrors.gstin && <FormFeedback>{formErrors.gstin}</FormFeedback>}
+             {gstinLookup.status === 'loading' && (
+               <div className="small text-secondary mt-2"><Spinner size="sm" className="me-2" />Verifying GSTIN...</div>
+             )}
+             {gstinLookup.status === 'success' && (
+               <Alert color="success" className="mt-2 mb-0 py-2">
+                 <strong>Registered name:</strong> {gstinLookup.details.companyName}
+                 {gstinLookup.details.tradeName && <div>Trade name: {gstinLookup.details.tradeName}</div>}
+                 {gstinLookup.details.status && <div>GSTIN status: {gstinLookup.details.status}</div>}
+               </Alert>
+             )}
+             {['error', 'unavailable'].includes(gstinLookup.status) && (
+               <Alert color="warning" className="mt-2 mb-0 py-2">{gstinLookup.message}</Alert>
+             )}
            </FormGroup>
            <FormGroup>
              <Label for="record-panNumber">PAN number <span className="text-muted">(optional)</span></Label>
@@ -941,7 +1067,7 @@ export default function PageContent({ path, user }) {
            </FormGroup>
          </>
        )}
-       <div className="d-flex justify-content-end gap-2"><Button color="light" type="button" onClick={() => setModalOpen(false)}>Cancel</Button><Button color="primary" className="btn-primary-custom" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save record'}</Button></div>
+       <div className="modal-compact-form-actions d-flex justify-content-end gap-2"><Button color="light" type="button" onClick={() => setModalOpen(false)}>Cancel</Button><Button color="primary" className="btn-primary-custom" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save record'}</Button></div>
      </Form></ModalBody>
    </Modal>
    <Modal isOpen={branchPaymentOpen} toggle={() => !branchPaymentSaving && setBranchPaymentOpen(false)} centered>

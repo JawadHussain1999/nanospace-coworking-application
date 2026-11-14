@@ -195,10 +195,10 @@ export default function InventoryManagement({ user }) {
         )}
       </Card>
 
-      {canManage && <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered>
+      {canManage && <Modal isOpen={modalOpen} toggle={() => setModalOpen(false)} centered size="lg">
         <ModalHeader toggle={() => setModalOpen(false)}>{editingId ? 'Edit inventory item' : 'Add inventory item'}</ModalHeader>
         <ModalBody>
-          <Form onSubmit={saveItem}>
+          <Form onSubmit={saveItem} className="modal-compact-form inventory-compact-form">
             <FormGroup>
               <Label for="inventory-name">Item name</Label>
               <Input id="inventory-name" required maxLength="100" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Meeting room" />
@@ -207,38 +207,26 @@ export default function InventoryManagement({ user }) {
               <Label for="inventory-description">Description</Label>
               <Input id="inventory-description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Describe this workspace or service" />
             </FormGroup>
-            <div className="row">
-              <div className="col-sm-6">
-                <FormGroup>
-                  <Label for="inventory-rate">Price (₹)</Label>
-                  <Input id="inventory-rate" type="number" min="0" step="0.01" required value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} />
-                </FormGroup>
-              </div>
-              <div className="col-sm-6">
-                <FormGroup>
-                  <Label for="inventory-unit">Billing unit</Label>
-                  <Input id="inventory-unit" required maxLength="30" value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} placeholder="day, month, session..." />
-                </FormGroup>
-              </div>
-            </div>
-            <div className="row">
-              <div className="col-sm-6">
-                <FormGroup>
-                  <Label for="inventory-type">Type</Label>
-                  <Input id="inventory-type" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })} />
-                </FormGroup>
-              </div>
-              <div className="col-sm-6">
-                <FormGroup>
-                  <Label for="inventory-status">Status</Label>
-                  <Input id="inventory-status" type="select" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-                    <option>Active</option>
-                    <option>Inactive</option>
-                  </Input>
-                </FormGroup>
-              </div>
-            </div>
-            <div className="d-flex justify-content-end gap-2">
+            <FormGroup>
+              <Label for="inventory-rate">Price (₹)</Label>
+              <Input id="inventory-rate" type="number" min="0" step="0.01" required value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} />
+            </FormGroup>
+            <FormGroup>
+              <Label for="inventory-unit">Billing unit</Label>
+              <Input id="inventory-unit" required maxLength="30" value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} placeholder="day, month, session..." />
+            </FormGroup>
+            <FormGroup>
+              <Label for="inventory-type">Type</Label>
+              <Input id="inventory-type" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })} />
+            </FormGroup>
+            <FormGroup>
+              <Label for="inventory-status">Status</Label>
+              <Input id="inventory-status" type="select" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+                <option>Active</option>
+                <option>Inactive</option>
+              </Input>
+            </FormGroup>
+            <div className="modal-compact-form-actions d-flex justify-content-end gap-2">
               <Button color="light" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
               <Button color="primary" className="btn-primary-custom" type="submit" disabled={busy}>{busy ? <Spinner size="sm" className="me-2" /> : null}{editingId ? 'Save changes' : 'Add item'}</Button>
             </div>

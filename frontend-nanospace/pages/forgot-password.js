@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 import { Alert, Button, Form, FormGroup, Input, Label, Spinner } from "reactstrap";
 import { FiArrowRight, FiCheckCircle, FiLock, FiMail, FiShield } from "react-icons/fi";
 import { api, getApiErrorMessage } from "../services/api";
+import ConnectedNetwork from "../components/layout/ConnectedNetwork";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -42,27 +43,35 @@ export default function ForgotPasswordPage() {
         <title>Forgot password | NanoSpace Workspace</title>
         <meta name="description" content="Request a secure NanoSpace password reset link." />
       </Head>
-      <div className="login-layout">
+      <div className="login-layout login-home-layout">
+        <div className="login-ambient-layer" aria-hidden="true">
+          <div className="login-cursor-glow" />
+          <ConnectedNetwork className="auth-network-art auth-network-art-top" />
+          <ConnectedNetwork className="auth-network-art auth-network-art-bottom" />
+        </div>
         <section className="login-brand-panel">
-          <div className="brand-orb orb-one" />
-          <div className="brand-orb orb-two" />
-          <div className="brand-grid-overlay" />
           <div className="login-brand-top">
-            <div className="brand-logo-wrap"><img src="/nanospace-logo.png" alt="NanoSpace" /></div>
+            <div className="brand-logo-wrap logo-orbit-wrap">
+              <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+              <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
+              <img src="/nanospace-logo.png" alt="NanoSpace" />
+            </div>
           </div>
           <div className="brand-copy">
             <div className="brand-chip"><FiShield className="chip-icon" /><span>ACCOUNT SECURITY</span></div>
             <h1>Back to your<br /><span className="gradient-text">workspace.</span></h1>
             <p className="brand-subtext">Reset your password securely and get back to the work that matters.</p>
           </div>
-          <footer className="brand-panel-footer"><span>© 2026 NanoSpace Co-working</span></footer>
         </section>
 
         <section className="login-form-panel">
-          <div className="form-panel-glow" />
           <div className="login-form-wrap">
             <div className="mobile-login-logo">
-              <img src="/nanospace-logo.png" alt="NanoSpace" className="mobile-logo-img" />
+              <div className="logo-orbit-wrap mobile-logo-orbit-wrap">
+                <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+                <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
+                <img src="/nanospace-logo.png" alt="NanoSpace" className="mobile-logo-img" />
+              </div>
             </div>
             <div className="login-card-header">
               <div className="login-eyebrow"><FiLock size={12} className="eyebrow-icon" /> ACCOUNT RECOVERY</div>
@@ -73,7 +82,7 @@ export default function ForgotPasswordPage() {
             {error && <Alert color="danger" role="alert" className="login-error-alert">{error}</Alert>}
             {submitted ? (
               <div>
-                <Alert color="success" role="status" className="login-error-alert">
+                <Alert color="success" role="status" className="login-error-alert login-success-alert">
                   <FiCheckCircle className="me-2" />
                   If an active account exists for that email, password reset instructions will be sent.
                 </Alert>
@@ -95,7 +104,7 @@ export default function ForgotPasswordPage() {
                       type="email"
                       value={emailValue}
                       onChange={(event) => setEmail(event.target.value)}
-                      placeholder="name@company.com"
+                      placeholder="Enter your email"
                       autoComplete="email"
                       className="custom-login-input"
                       required
@@ -113,6 +122,9 @@ export default function ForgotPasswordPage() {
               <Link href="/" className="text-link">Back to sign in</Link>
             </div>
           </div>
+          <footer className="login-page-footer">
+            <span>© 2026 NanoSpace Co-working</span>
+          </footer>
         </section>
       </div>
     </>

@@ -18,6 +18,7 @@ import {
 } from "react-icons/fi";
 import { getMenuForRole } from "../../utils/permissions";
 import { formatBranchName } from "../../services/api";
+import ConnectedNetwork from "./ConnectedNetwork";
 
 const icons = {
   dashboard: FiGrid,
@@ -58,6 +59,7 @@ export default function Sidebar({ user, open, onClose }) {
     <>
       <div className={`sidebar-backdrop ${open ? "show" : ""}`} onClick={onClose} />
       <aside className={`app-sidebar ${open ? "mobile-open" : ""}`}>
+        <ConnectedNetwork className="sidebar-network-art" />
         <div className="brand-wrap">
           <Link href="/dashboard" className="brand-link">
             <img

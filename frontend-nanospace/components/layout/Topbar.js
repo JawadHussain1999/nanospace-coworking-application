@@ -12,6 +12,8 @@ import {
   FiCamera,
   FiUpload,
   FiTrash2,
+  FiMoon,
+  FiSun,
 } from 'react-icons/fi';
 import {
   Alert,
@@ -33,6 +35,7 @@ import {
 import { ROLE_LABELS } from '../../utils/permissions';
 import { api, getApiCollection, getApiErrorMessage, isApiEnabled } from '../../services/api';
 import UserAvatar from '../shared/UserAvatar';
+import ConnectedNetwork from './ConnectedNetwork';
 import { showSuccess, showError } from '../../utils/toast';
 
 const subscribeToReducedMotion = (onChange) => {
@@ -103,7 +106,7 @@ export function TopbarLiveClock() {
   );
 }
 
-export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
+export default function Topbar({ user, darkMode, onToggleTheme, onMenu, onLogout, onSaveProfile }) {
   const prefersReducedMotion = useSyncExternalStore(
     subscribeToReducedMotion,
     getReducedMotionPreference,
@@ -274,6 +277,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
       <header className="topbar">
         {!prefersReducedMotion && (
           <div className="topbar-waves" aria-hidden="true">
+            <ConnectedNetwork className="topbar-network-art" />
             <Wave
               className="topbar-wave"
               fill="url(#topbar-wave-gradient)"
@@ -281,8 +285,8 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
             >
               <defs>
                 <linearGradient id="topbar-wave-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.04" />
-                  <stop offset="100%" stopColor="#0d9488" stopOpacity="0.42" />
+                  <stop offset="0%" stopColor="#2588ff" stopOpacity="0.08" />
+                  <stop offset="100%" stopColor="#9e4bff" stopOpacity="0.42" />
                 </linearGradient>
               </defs>
             </Wave>
@@ -296,6 +300,15 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
           <div className="topbar-timings">
             <TopbarLiveClock />
           </div>
+          <button
+            type="button"
+            className="icon-button theme-toggle-button"
+            onClick={onToggleTheme}
+            aria-label={`Switch to ${darkMode ? 'light' : 'dark'} mode`}
+            title={`Switch to ${darkMode ? 'light' : 'dark'} mode`}
+          >
+            {darkMode ? <FiSun size={18} /> : <FiMoon size={18} />}
+          </button>
           <Dropdown isOpen={notificationsOpen} toggle={() => setNotificationsOpen(!notificationsOpen)}>
             <DropdownToggle
               tag="button"
@@ -365,7 +378,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                             <Button
                               color="link"
                               size="sm"
-                              className="p-0 text-decoration-none small fw-semibold text-primary"
+                              className="notification-action notification-open-action p-0 text-decoration-none small fw-semibold"
                               onClick={() => {
                                 markNotificationRead(notification);
                                 router.push('/bookings');
@@ -377,7 +390,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                           <Button
                             color="link"
                             size="sm"
-                            className="p-0 text-decoration-none text-muted small"
+                            className="notification-action notification-dismiss-action p-0 text-decoration-none small"
                             onClick={() => deleteNotification(notification)}
                             title="Dismiss notification"
                           >
@@ -420,11 +433,11 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
       </header>
 
       {/* My Profile Modal with Optional Picture Upload & Drawback Picture */}
-      <Modal isOpen={profileModalOpen} toggle={() => !profileSaving && setProfileModalOpen(false)} centered>
+      <Modal isOpen={profileModalOpen} toggle={() => !profileSaving && setProfileModalOpen(false)} centered size="lg" className="profile-edit-modal">
         <ModalHeader toggle={() => !profileSaving && setProfileModalOpen(false)}>My Profile</ModalHeader>
         <ModalBody>
-          {profileError && <Alert color="danger" className="mb-3">{profileError}</Alert>}
-          <Form onSubmit={saveProfile}>
+          <Form onSubmit={saveProfile} className="profile-edit-form modal-compact-form">
+            {profileError && <Alert color="danger" className="profile-edit-error mb-3">{profileError}</Alert>}
             {/* Profile Avatar Upload / Preview */}
             <div className="profile-avatar-upload-card text-center mb-4">
               <div className="profile-avatar-frame position-relative d-inline-block">
@@ -450,7 +463,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                 />
               </div>
 
-              <div className="d-flex align-items-center justify-content-center gap-2 mt-3">
+              <div className="profile-avatar-actions d-flex align-items-center justify-content-center gap-2 mt-3">
                 <label
                   htmlFor="profile-avatar-file-input"
                   className="btn btn-sm btn-outline-primary mb-0 cursor-pointer d-inline-flex align-items-center gap-1"
@@ -482,7 +495,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
               </div>
             </div>
 
-            <FormGroup>
+            <FormGroup className="profile-name-field">
               <Label for="profile-name">Full name</Label>
               <Input
                 id="profile-name"
@@ -493,7 +506,7 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                 placeholder="Enter your full name"
               />
             </FormGroup>
-            <FormGroup>
+            <FormGroup className="profile-email-field">
               <Label for="profile-email">Email address</Label>
               <Input
                 id="profile-email"
@@ -504,15 +517,15 @@ export default function Topbar({ user, onMenu, onLogout, onSaveProfile }) {
                 placeholder="Enter your email"
               />
             </FormGroup>
-            <FormGroup>
+            <FormGroup className="profile-role-field">
               <Label>Role</Label>
               <Input value={ROLE_LABELS[user.role] || user.role} disabled />
             </FormGroup>
-            <FormGroup>
+            <FormGroup className="profile-branch-field">
               <Label>Branch</Label>
               <Input value={user.branch || 'All branches'} disabled />
             </FormGroup>
-            <div className="d-flex justify-content-end gap-2 mt-4">
+            <div className="profile-edit-actions modal-compact-form-actions d-flex justify-content-end gap-2 mt-4">
               <Button color="light" type="button" disabled={profileSaving} onClick={() => setProfileModalOpen(false)}>
                 Cancel
               </Button>

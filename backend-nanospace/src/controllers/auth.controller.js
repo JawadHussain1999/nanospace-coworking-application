@@ -129,8 +129,8 @@ router.post('/signup', asyncHandler(async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(branchId)) {
     return res.status(400).json({ error: 'Select a valid NanoSpace branch.' });
   }
-  if (password.length < 12 || Buffer.byteLength(password, 'utf8') > 72) {
-    return res.status(400).json({ error: 'Password must be at least 12 characters and no more than 72 bytes.' });
+  if (!password || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ error: 'Password is required and must be no more than 72 UTF-8 bytes.' });
   }
 
   const branchResult = await pool.query(
@@ -259,8 +259,8 @@ router.post('/reset-password', asyncHandler(async (req, res) => {
   if (!/^[a-f0-9]{64}$/i.test(token)) {
     return res.status(400).json({ error: 'This password reset link is invalid or has expired. Request a new one.' });
   }
-  if (password.length < 12 || Buffer.byteLength(password, 'utf8') > 72) {
-    return res.status(400).json({ error: 'Password must be at least 12 characters and no more than 72 bytes.' });
+  if (!password || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ error: 'Password is required and must be no more than 72 UTF-8 bytes.' });
   }
   if (!(await authTablesReady)) {
     return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again later.' });

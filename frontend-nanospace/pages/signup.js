@@ -6,6 +6,8 @@ import { Alert, Button, Form, FormGroup, Input, Label, Spinner } from 'reactstra
 import { FiArrowRight, FiBriefcase, FiLock, FiMail, FiMapPin, FiPhone, FiShield, FiUser, FiZap } from 'react-icons/fi';
 import { api, getApiCollection, getApiErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import ConnectedNetwork from '../components/layout/ConnectedNetwork';
+import PasswordStrengthHint, { isPasswordWithinLimit } from '../components/auth/PasswordStrengthHint';
 
 export default function SignupPage() {
   const { user, ready } = useAuth();
@@ -56,6 +58,10 @@ export default function SignupPage() {
       setError('Passwords do not match.');
       return;
     }
+    if (!isPasswordWithinLimit(form.password)) {
+      setError('Password must be no more than 72 UTF-8 bytes.');
+      return;
+    }
 
     setBusy(true);
     try {
@@ -91,14 +97,18 @@ export default function SignupPage() {
         <title>Client registration | NanoSpace</title>
         <meta name="description" content="Register for a NanoSpace client account." />
       </Head>
-      <main className="login-layout signup-layout">
+      <main className="login-layout login-home-layout signup-layout">
+        <div className="login-ambient-layer" aria-hidden="true">
+          <ConnectedNetwork className="auth-network-art auth-network-art-top" />
+          <ConnectedNetwork className="auth-network-art auth-network-art-bottom" />
+        </div>
         <section className="login-brand-panel">
-          <div className="brand-orb orb-one" />
-          <div className="brand-orb orb-two" />
-          <div className="brand-orb orb-three" />
-          <div className="brand-grid-overlay" />
           <div className="login-brand-top">
-            <div className="brand-logo-wrap"><Image src="/nanospace-logo.png" alt="NanoSpace" width={300} height={85} priority /></div>
+            <div className="brand-logo-wrap logo-orbit-wrap">
+              <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+              <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
+              <Image src="/nanospace-logo.png" alt="NanoSpace" width={300} height={85} priority />
+            </div>
           </div>
           <div className="brand-copy">
             <div className="brand-chip"><FiZap className="chip-icon" /><span>NANOSPACE CLIENT PORTAL</span></div>
@@ -109,13 +119,17 @@ export default function SignupPage() {
               <div className="feature-item"><span className="feature-icon"><FiShield /></span><div className="feature-text"><strong>Your account, your bookings</strong><small>Keep your workspace details in one place</small></div></div>
             </div>
           </div>
-          <div className="brand-panel-footer"><span>© 2026 NanoSpace Co-working</span></div>
         </section>
 
         <section className="login-form-panel signup-form-panel">
-          <div className="form-panel-glow" />
           <div className="login-form-wrap signup-form-wrap">
-            <div className="mobile-login-logo"><Image src="/nanospace-logo.png" alt="NanoSpace" width={235} height={60} className="mobile-logo-img" /></div>
+            <div className="mobile-login-logo">
+              <div className="logo-orbit-wrap mobile-logo-orbit-wrap">
+                <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+                <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
+                <Image src="/nanospace-logo.png" alt="NanoSpace" width={235} height={60} className="mobile-logo-img" />
+              </div>
+            </div>
             <div className="login-card-header">
               <div className="login-eyebrow"><FiUser size={12} className="eyebrow-icon" /> CLIENT REGISTRATION</div>
               <h2>Create your account</h2>
@@ -125,42 +139,42 @@ export default function SignupPage() {
             {error && <Alert color="danger" className="login-error-alert">{error}</Alert>}
             {success ? (
               <div>
-                <Alert color="success" className="login-error-alert">{success}</Alert>
+                <Alert color="success" className="login-error-alert login-success-alert">{success}</Alert>
                 <Link href="/" className="btn btn-primary login-submit-btn d-flex align-items-center justify-content-center text-decoration-none">
                   Go to sign in <FiArrowRight className="ms-2" />
                 </Link>
               </div>
             ) : (
-              <Form onSubmit={submitSignup}>
-                <FormGroup>
+              <Form onSubmit={submitSignup} className="signup-fields-grid">
+                <FormGroup className="signup-field-name">
                   <Label for="signup-name" className="input-label">Full name</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiUser /></span>
                     <Input id="signup-name" name="fullName" value={form.fullName} onChange={updateField} required maxLength={160} autoComplete="name" placeholder="Your full name" className="custom-login-input" />
                   </div>
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-email">
                   <Label for="signup-email" className="input-label">Email address</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiMail /></span>
-                    <Input id="signup-email" name="email" type="email" value={form.email} onChange={updateField} required maxLength={255} autoComplete="email" placeholder="name@company.com" className="custom-login-input" />
+                    <Input id="signup-email" name="email" type="email" value={form.email} onChange={updateField} required maxLength={255} autoComplete="email" placeholder="Enter your email" className="custom-login-input" />
                   </div>
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-phone">
                   <Label for="signup-phone" className="input-label">Phone number</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiPhone /></span>
                     <Input id="signup-phone" name="phone" type="tel" value={form.phone} onChange={updateField} required maxLength={40} autoComplete="tel" placeholder="+91 98765 43210" className="custom-login-input" />
                   </div>
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-company">
                   <Label for="signup-company" className="input-label">Company <span className="text-muted">(optional)</span></Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiBriefcase /></span>
                     <Input id="signup-company" name="companyName" value={form.companyName} onChange={updateField} maxLength={180} autoComplete="organization" placeholder="Company name" className="custom-login-input" />
                   </div>
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-branch">
                   <Label for="signup-branch" className="input-label">Preferred branch</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiMapPin /></span>
@@ -171,25 +185,27 @@ export default function SignupPage() {
                   </div>
                   {!branchesLoading && !branches.length && <small className="field-error-text">No active branches are currently available for registration.</small>}
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-password">
                   <Label for="signup-password" className="input-label">Password</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiLock /></span>
-                    <Input id="signup-password" name="password" type="password" value={form.password} onChange={updateField} required minLength={12} maxLength={72} autoComplete="new-password" placeholder="At least 12 characters" className="custom-login-input" />
+                    <Input id="signup-password" name="password" type="password" value={form.password} onChange={updateField} required maxLength={72} autoComplete="new-password" placeholder="Enter a password" className="custom-login-input" />
                   </div>
-                  <small className="text-muted">Use at least 12 characters.</small>
+                  <PasswordStrengthHint password={form.password} />
                 </FormGroup>
-                <FormGroup>
+                <FormGroup className="signup-field-confirm-password">
                   <Label for="signup-confirm-password" className="input-label">Confirm password</Label>
                   <div className="input-field-wrapper">
                     <span className="input-icon"><FiLock /></span>
-                    <Input id="signup-confirm-password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={updateField} required minLength={12} maxLength={72} autoComplete="new-password" placeholder="Enter your password again" className="custom-login-input" />
+                    <Input id="signup-confirm-password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={updateField} required maxLength={72} autoComplete="new-password" placeholder="Enter your password again" className="custom-login-input" />
                   </div>
                 </FormGroup>
-                <Button type="submit" color="primary" className="login-submit-btn" disabled={busy || branchesLoading || !branches.length}>
-                  {busy ? <><Spinner size="sm" className="me-2" />Creating account...</> : <><span>Create account</span><FiArrowRight size={17} className="btn-arrow" /></>}
-                </Button>
-                <div className="login-help">Already have an account? <Link href="/">Sign in</Link></div>
+                <div className="signup-form-actions">
+                  <Button type="submit" color="primary" className="login-submit-btn" disabled={busy || branchesLoading || !branches.length}>
+                    {busy ? <><Spinner size="sm" className="me-2" />Creating account...</> : <><span>Create account</span><FiArrowRight size={17} className="btn-arrow" /></>}
+                  </Button>
+                  <div className="login-help">Already have an account? <Link href="/">Sign in</Link></div>
+                </div>
               </Form>
             )}
           </div>

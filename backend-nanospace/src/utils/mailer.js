@@ -105,8 +105,7 @@ async function sendOtpEmail(email, otp, userName = 'NanoSpace Member') {
           </div>
         </div>
         <div class="footer">
-          © 2026 NanoSpace Co-working Management Platform.<br />
-          Crafted by <strong>Jawad Hussain</strong> with ♥
+          © 2026 NanoSpace Co-working Management Platform.
         </div>
       </div>
     </body>
@@ -127,7 +126,7 @@ async function sendOtpEmail(email, otp, userName = 'NanoSpace Member') {
       to: email,
       subject,
       html,
-      text: `Hello ${userName},\n\nYour NanoSpace verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.\n\nCrafted by Jawad Hussain.`,
+      text: `Hello ${userName},\n\nYour NanoSpace verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
     });
     if (result.isMock) {
       console.log('[NanoSpace Mailer] Simulated OTP email delivery complete.');

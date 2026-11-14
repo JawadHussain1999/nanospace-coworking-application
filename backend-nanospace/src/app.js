@@ -6,6 +6,7 @@ const {authenticate}=require('./middleware/auth');
 const {notFound,errorHandler}=require('./middleware/errors');
 const app=express();
 app.disable('x-powered-by');
+app.set('trust proxy',1);
 app.use(helmet());
 app.use(cors({origin:process.env.CORS_ORIGIN?process.env.CORS_ORIGIN.split(',').map(x=>x.trim()):true}));
 app.use(express.json({limit:'10mb'}));

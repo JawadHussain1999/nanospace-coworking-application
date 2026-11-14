@@ -4,6 +4,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { useDispatch, useSelector } from 'react-redux';
 import { FiCalendar, FiMapPin, FiUsers, FiBriefcase, FiCheckCircle, FiArrowRight, FiZap, FiHome, FiHeadphones, FiMonitor, FiCoffee, FiShield, FiClock, FiCreditCard, FiExternalLink } from 'react-icons/fi';
 import WorkspaceFloorMap from '../workspace/WorkspaceFloorMap';
+import ConnectedNetwork from '../layout/ConnectedNetwork';
 import { branchFloors, PARKING_INVENTORY_ID, inventory as defaultInventory } from '../../data/inventory';
 import { addBooking } from '../../store/slices/workspaceSlice';
 import { hydrateInventory } from '../../store/slices/inventorySlice';
@@ -591,6 +592,7 @@ export default function BookingExperience({ user }) {
       {apiNotice && <Alert color="danger" toggle={() => setApiNotice('')}>{apiNotice}</Alert>}
 
       <div className="booking-search-hero">
+        <ConnectedNetwork className="booking-network-art" />
         <div>
           <div className="booking-hero-kicker">NANOSPACE · {user.role === 'customer' ? 'MEMBER BOOKING' : 'FRONT DESK BOOKING'}</div>
           <h2>Your workspace, your way</h2>

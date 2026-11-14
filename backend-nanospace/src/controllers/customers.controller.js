@@ -1,16 +1,26 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const pool = require('../models/database.model');
 const ah = require('../utils/asyncHandler');
 const { allowRoles } = require('../middleware/auth');
 const { createPasswordSetupLink } = require('../utils/accountWelcome');
 const { sendAccountWelcomeEmail } = require('../utils/mailer');
+const gstinLookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
 router.get('/', ah(async (req, res) => {
   const { role, id, branch_id } = req.user;
   const p = [];
   let sql = `SELECT c.*, b.name AS branch_name,
+                    COALESCE(c.advance_amount, 0) AS customer_advance_amount,
+                    COALESCE(c.advance_amount, 0) +
                     COALESCE((SELECT SUM(bk.advance_amount) FROM bookings bk WHERE bk.customer_id = c.id AND bk.status != 'CANCELLED'), 0) AS advance_amount
              FROM customers c
              LEFT JOIN branches b ON b.id = c.branch_id
@@ -35,6 +45,65 @@ router.get('/', ah(async (req, res) => {
   res.json({ data: result.rows });
 }));
 
+router.get('/gstin/:gstin', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), gstinLookupLimiter, ah(async (req, res) => {
+  const gstin = String(req.params.gstin || '').trim().toUpperCase();
+  if (!gstinPattern.test(gstin)) {
+    return res.status(400).json({ error: 'Please enter a valid 15-character GSTIN.' });
+  }
+
+  const token = process.env.SUREPASS_TOKEN;
+  if (!token) {
+    return res.status(503).json({ error: 'GSTIN lookup is not configured. Add SUREPASS_TOKEN to the backend environment.' });
+  }
+
+  const baseUrl = (process.env.SUREPASS_BASE_URL || 'https://kyc-api.surepass.io/api/v1').replace(/\/+$/, '');
+  let providerResponse;
+  let providerData;
+  try {
+    providerResponse = await fetch(`${baseUrl}/corporate/gstin`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id_number: gstin }),
+      signal: AbortSignal.timeout(10000),
+    });
+    providerData = await providerResponse.json();
+  } catch (error) {
+    console.error('GSTIN provider request failed:', error);
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      return res.status(504).json({ error: 'GSTIN lookup timed out. Please try again.' });
+    }
+    return res.status(502).json({ error: 'GSTIN lookup provider could not be reached. Please try again.' });
+  }
+
+  if (!providerResponse.ok || providerData?.success !== true) {
+    const providerMessage = String(providerData?.message || '');
+    if (/invalid|not found|does ?n.?t exist|no record|not registered/i.test(providerMessage)) {
+      return res.status(404).json({ error: 'No registered taxpayer was found for this GSTIN. Please check the number.' });
+    }
+    console.error('GSTIN provider returned an unsuccessful response:', providerResponse.status, providerData?.message || 'Unknown provider error');
+    return res.status(502).json({ error: 'GSTIN lookup provider could not verify this number. Please try again.' });
+  }
+
+  const details = providerData.data || {};
+  const companyName = details.legal_name || details.business_name;
+  if (!companyName) {
+    console.error('GSTIN provider response did not include a registered business name.');
+    return res.status(502).json({ error: 'GSTIN lookup returned no registered company name. Please enter it manually.' });
+  }
+
+  return res.json({
+    data: {
+      gstin,
+      companyName,
+      tradeName: details.additional_trade_name || null,
+      status: details.gstin_status || null,
+    },
+  });
+}));
+
 router.get('/:id/documents', ah(async (req, res) => {
   const result = await pool.query(
     `SELECT d.*, b.name AS branch_name
@@ -48,9 +117,10 @@ router.get('/:id/documents', ah(async (req, res) => {
 }));
 
 router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), ah(async (req, res) => {
-  const { fullName, email, phone, companyName, gstin, panNumber, branchId, branch } = req.body;
+  const { fullName, email, phone, companyName, gstin, panNumber, branchId, branch, plan, advanceAmount } = req.body;
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedPhone = String(phone || '').trim();
+  const normalizedAdvance = advanceAmount === undefined ? 0 : Number(advanceAmount);
   const normalizedGstin = gstin === undefined ? null : String(gstin).trim().toUpperCase();
   const normalizedPan = panNumber === undefined ? null : String(panNumber).trim().toUpperCase();
   if (!String(fullName || '').trim()) return res.status(400).json({ error: 'Customer name is required.' });
@@ -58,6 +128,9 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), a
     return res.status(400).json({ error: 'A valid customer email address is required.' });
   }
   if (!normalizedPhone) return res.status(400).json({ error: 'A customer phone number is required.' });
+  if (!Number.isFinite(normalizedAdvance) || normalizedAdvance < 0) {
+    return res.status(400).json({ error: 'Advance paid must be a non-negative amount.' });
+  }
   if (normalizedGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(normalizedGstin)) {
     return res.status(400).json({ error: 'Please enter a valid 15-character GSTIN.' });
   }
@@ -94,9 +167,9 @@ router.post('/', allowRoles('SUPER_ADMIN', 'BRANCH_ADMIN', 'RECEPTION_ADMIN'), a
     createdUser = userResult.rows[0];
 
     const result = await client.query(
-      `INSERT INTO customers(user_id, branch_id, full_name, email, phone, company_name, gstin, pan_number, plan, status)
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8, 'Dedicated Member', 'ACTIVE') RETURNING *`,
-      [createdUser.id, assignedBranch, fullName.trim(), normalizedEmail, normalizedPhone, companyName || null, normalizedGstin, normalizedPan]
+      `INSERT INTO customers(user_id, branch_id, full_name, email, phone, company_name, gstin, pan_number, plan, status, advance_amount)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(NULLIF($9, ''), 'Dedicated Member'), 'ACTIVE', $10) RETURNING *`,
+      [createdUser.id, assignedBranch, fullName.trim(), normalizedEmail, normalizedPhone, companyName || null, normalizedGstin, normalizedPan, String(plan || ''), normalizedAdvance]
     );
     customer = result.rows[0];
     passwordSetupUrl = await createPasswordSetupLink(client, createdUser.id);
@@ -154,7 +227,11 @@ router.get('/:id', ah(async (req, res) => {
 
 router.patch('/:id', ah(async (req, res) => {
   const { role, id, branch_id } = req.user;
-  const { fullName, email, phone, companyName, gstin, panNumber, address, plan, status } = req.body;
+  const { fullName, email, phone, companyName, gstin, panNumber, address, plan, advanceAmount, status } = req.body;
+  const normalizedAdvance = advanceAmount === undefined ? null : Number(advanceAmount);
+  if (normalizedAdvance !== null && (!Number.isFinite(normalizedAdvance) || normalizedAdvance < 0)) {
+    return res.status(400).json({ error: 'Advance paid must be a non-negative amount.' });
+  }
   const statusVal = status !== undefined ? String(status).trim().toUpperCase() : null;
   const normalizedGstin = gstin === undefined ? undefined : String(gstin).trim().toUpperCase();
   const normalizedPan = panNumber === undefined ? undefined : String(panNumber).trim().toUpperCase();
@@ -175,10 +252,11 @@ router.patch('/:id', ah(async (req, res) => {
                pan_number=COALESCE($7, pan_number),
                address=COALESCE($8, address),
                plan=COALESCE($9, plan),
-               status=COALESCE($10, status),
+               advance_amount=COALESCE($10, advance_amount),
+               status=COALESCE($11, status),
                updated_at=NOW()
            WHERE id=$1 RETURNING *`,
-          [req.params.id, fullName || null, email || null, phone || null, companyName || null, normalizedGstin ?? null, normalizedPan ?? null, address ?? null, plan || null, statusVal]
+          [req.params.id, fullName || null, email || null, phone || null, companyName || null, normalizedGstin ?? null, normalizedPan ?? null, address ?? null, plan || null, normalizedAdvance, statusVal]
         )
     : role === 'CUSTOMER'
         ? await pool.query(
@@ -209,10 +287,11 @@ router.patch('/:id', ah(async (req, res) => {
                  pan_number=COALESCE($8, pan_number),
                  address=COALESCE($9, address),
                  plan=COALESCE($10, plan),
-                 status=COALESCE($11, status),
+                 advance_amount=COALESCE($11, advance_amount),
+                 status=COALESCE($12, status),
                  updated_at=NOW()
            WHERE id=$1 AND branch_id=$2 RETURNING *`,
-            [req.params.id, branch_id, fullName || null, email || null, phone || null, companyName || null, normalizedGstin ?? null, normalizedPan ?? null, address ?? null, plan || null, statusVal]
+            [req.params.id, branch_id, fullName || null, email || null, phone || null, companyName || null, normalizedGstin ?? null, normalizedPan ?? null, address ?? null, plan || null, normalizedAdvance, statusVal]
         );
 
   if (!result.rowCount) return res.status(404).json({ error: 'Customer not found.' });

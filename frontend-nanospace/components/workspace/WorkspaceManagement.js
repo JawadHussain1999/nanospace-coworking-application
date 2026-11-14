@@ -387,16 +387,16 @@ export default function WorkspaceManagement({ user }) {
       )}
 
       {/* Edit Workspace Modal */}
-      {isApiEnabled && canManageWorkspaces && <Modal isOpen={workspaceModalOpen} toggle={() => setWorkspaceModalOpen(false)} centered>
+      {isApiEnabled && canManageWorkspaces && <Modal isOpen={workspaceModalOpen} toggle={() => setWorkspaceModalOpen(false)} centered size="lg">
         <ModalHeader toggle={() => setWorkspaceModalOpen(false)}>{editingWorkspaceId ? 'Edit workspace' : 'Add workspace'}</ModalHeader>
-        <ModalBody><Form onSubmit={saveWorkspace}>
+        <ModalBody><Form onSubmit={saveWorkspace} className="modal-compact-form">
           <FormGroup><Label for="workspace-name">Workspace name</Label><Input id="workspace-name" required value={workspaceForm.name} onChange={(event) => setWorkspaceForm({ ...workspaceForm, name: event.target.value })} /></FormGroup>
           <FormGroup><Label for="workspace-branch">Branch</Label><Input id="workspace-branch" type="select" required value={workspaceForm.branch} disabled={user.role !== 'super_admin'} onChange={(event) => setWorkspaceForm({ ...workspaceForm, branch: event.target.value, floor: 'Ground Floor' })}>{branches.map((branch) => <option key={branch}>{branch}</option>)}</Input></FormGroup>
           <FormGroup><Label for="workspace-floor">Floor</Label><Input id="workspace-floor" type="select" required value={workspaceForm.floor} onChange={(event) => setWorkspaceForm({ ...workspaceForm, floor: event.target.value })}>{getBranchFloorOptions(workspaceForm.branch, apiBranchFloorCounts, apiWorkspaces, workspaceForm.floor).map((floor) => <option key={floor} value={floor}>{floor}</option>)}</Input></FormGroup>
           <FormGroup><Label for="workspace-type">Type</Label><Input id="workspace-type" value={workspaceForm.type} onChange={(event) => setWorkspaceForm({ ...workspaceForm, type: event.target.value })} /></FormGroup>
           <FormGroup><Label for="workspace-capacity">Capacity</Label><Input id="workspace-capacity" type="number" min="1" step="1" required value={workspaceForm.capacity} onChange={(event) => setWorkspaceForm({ ...workspaceForm, capacity: event.target.value })} /></FormGroup>
           <FormGroup><Label for="workspace-status">Status</Label><Input id="workspace-status" type="select" value={workspaceForm.status} onChange={(event) => setWorkspaceForm({ ...workspaceForm, status: event.target.value })}><option value="AVAILABLE">Available</option><option value="OCCUPIED">Occupied</option><option value="RESERVED">Booked</option><option value="MAINTENANCE">Maintenance</option></Input></FormGroup>
-          <div className="d-flex justify-content-end gap-2"><Button color="light" type="button" onClick={() => setWorkspaceModalOpen(false)}>Cancel</Button><Button color="primary" className="btn-primary-custom" type="submit" disabled={apiBusy}>{apiBusy ? 'Saving...' : 'Save workspace'}</Button></div>
+          <div className="modal-compact-form-actions d-flex justify-content-end gap-2"><Button color="light" type="button" onClick={() => setWorkspaceModalOpen(false)}>Cancel</Button><Button color="primary" className="btn-primary-custom" type="submit" disabled={apiBusy}>{apiBusy ? 'Saving...' : 'Save workspace'}</Button></div>
         </Form></ModalBody>
       </Modal>}
     </div>

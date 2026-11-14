@@ -73,10 +73,6 @@ export default function LoginPage() {
 
   const passwordRegistration = register("password", {
     required: "Password is required.",
-    minLength: {
-      value: 6,
-      message: "Password must be at least 6 characters.",
-    },
   });
   const { ref: passwordRef, ...passwordInputProps } = passwordRegistration;
 
@@ -177,18 +173,93 @@ export default function LoginPage() {
           content="Sign in to NanoSpace intelligent coworking management platform"
         />
       </Head>
-      <div className="login-layout">
+      <div
+        className="login-layout login-home-layout"
+        onPointerMove={(event) => {
+          if (event.pointerType !== "mouse") return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.style.setProperty("--cursor-x", `${event.clientX - bounds.left}px`);
+          event.currentTarget.style.setProperty("--cursor-y", `${event.clientY - bounds.top}px`);
+          event.currentTarget.style.setProperty("--cursor-opacity", "1");
+        }}
+        onPointerLeave={(event) => event.currentTarget.style.setProperty("--cursor-opacity", "0")}
+      >
+        <div className="login-ambient-layer" aria-hidden="true">
+          <div className="login-cursor-glow" />
+          <svg
+            className="login-geometric-lines"
+            viewBox="0 0 1600 900"
+            preserveAspectRatio="xMidYMid slice"
+          >
+            <g className="network-lines network-lines-blue">
+              <path className="geometric-line-path" d="M1110 435 1180 350 1240 392 1305 300 1375 330 1440 230 1515 250 1570 170 1640 205" />
+              <path className="geometric-line-path" d="M1180 350 1165 265 1230 210 1305 300 1320 205 1380 145 1440 230 1470 125 1530 70 1570 170 1635 95" />
+              <path className="geometric-line-path" d="M1230 210 1195 125 1260 65 1320 205 1340 95 1380 145 1425 45 1470 125 1500 20 1530 70 1585 0" />
+              <path className="geometric-line-path" d="M1305 300 1375 330 1405 405 1460 335 1515 250 1550 360 1605 300 1640 205" />
+              <path className="geometric-line-path" d="M1375 330 1380 435 1460 335 1485 445 1550 360 1605 430 1645 365" />
+              <path className="geometric-line-path" d="M1165 265 1085 300 1110 435 1195 125 1125 145 1165 265 1230 210 1260 65" />
+              <path className="geometric-line-path" d="M1320 205 1375 185 1440 230 1470 125 1530 70 1550 145 1610 100" />
+              <path className="geometric-line-path" d="M1380 145 1410 0 1425 45 1490 35 1500 20 1560 55 1585 0" />
+            </g>
+            <g className="network-lines network-lines-purple">
+              <path className="geometric-line-path" d="M-50 790 35 720 110 760 175 675 245 720 310 655 375 715 450 650 520 720 590 660 665 735 740 675 805 760 875 700" />
+              <path className="geometric-line-path" d="M-50 790 20 850 35 720 95 900 110 760 175 835 175 675 245 720 260 885 310 655 375 800 375 715 450 825 450 650 520 720 540 900 590 800 590 660 665 735 690 890 740 675 805 760 875 700" />
+              <path className="geometric-line-path" d="M-35 900 35 850 95 900 175 835 260 885 375 800 450 825 540 900 590 800 690 890 805 760 875 820" />
+              <path className="geometric-line-path" d="M20 850 110 760 175 835 245 720 310 820 375 800 450 825 520 720 590 800 665 735 740 800 805 760 875 820" />
+              <path className="geometric-line-path" d="M-30 655 35 720 95 650 175 675 245 610 310 655 375 590 450 650 520 590 590 660 665 600 740 675" />
+            </g>
+            <g className="network-nodes network-nodes-blue">
+              <circle className="geometric-line-node" cx="1110" cy="435" r="3" />
+              <circle className="geometric-line-node" cx="1180" cy="350" r="3" />
+              <circle className="geometric-line-node" cx="1165" cy="265" r="3" />
+              <circle className="geometric-line-node" cx="1230" cy="210" r="3" />
+              <circle className="geometric-line-node" cx="1260" cy="65" r="3" />
+              <circle className="geometric-line-node" cx="1305" cy="300" r="3" />
+              <circle className="geometric-line-node" cx="1320" cy="205" r="3" />
+              <circle className="geometric-line-node" cx="1340" cy="95" r="3" />
+              <circle className="geometric-line-node" cx="1380" cy="145" r="3" />
+              <circle className="geometric-line-node" cx="1375" cy="330" r="3" />
+              <circle className="geometric-line-node" cx="1440" cy="230" r="3" />
+              <circle className="geometric-line-node" cx="1470" cy="125" r="3" />
+              <circle className="geometric-line-node" cx="1515" cy="250" r="3" />
+              <circle className="geometric-line-node" cx="1530" cy="70" r="3" />
+              <circle className="geometric-line-node" cx="1570" cy="170" r="3" />
+              <circle className="geometric-line-node" cx="1550" cy="360" r="3" />
+              <circle className="geometric-line-node" cx="1605" cy="300" r="3" />
+            </g>
+            <g className="network-nodes network-nodes-purple">
+              <circle className="geometric-line-node" cx="35" cy="720" r="3" />
+              <circle className="geometric-line-node" cx="110" cy="760" r="3" />
+              <circle className="geometric-line-node" cx="175" cy="675" r="3" />
+              <circle className="geometric-line-node" cx="175" cy="835" r="3" />
+              <circle className="geometric-line-node" cx="245" cy="720" r="3" />
+              <circle className="geometric-line-node" cx="260" cy="885" r="3" />
+              <circle className="geometric-line-node" cx="310" cy="655" r="3" />
+              <circle className="geometric-line-node" cx="375" cy="715" r="3" />
+              <circle className="geometric-line-node" cx="375" cy="800" r="3" />
+              <circle className="geometric-line-node" cx="450" cy="650" r="3" />
+              <circle className="geometric-line-node" cx="450" cy="825" r="3" />
+              <circle className="geometric-line-node" cx="520" cy="720" r="3" />
+              <circle className="geometric-line-node" cx="590" cy="660" r="3" />
+              <circle className="geometric-line-node" cx="665" cy="735" r="3" />
+              <circle className="geometric-line-node" cx="740" cy="675" r="3" />
+              <circle className="geometric-line-node" cx="805" cy="760" r="3" />
+            </g>
+            <circle className="connected-dot" r="2.5">
+              <animateMotion dur="18s" repeatCount="indefinite" path="M1110 435 1180 350 1305 300 1375 330 1440 230 1515 250 1570 170 1640 205" />
+            </circle>
+            <circle className="connected-dot connected-dot-purple" r="2.5">
+              <animateMotion dur="15s" begin="-7s" repeatCount="indefinite" path="M-50 790 35 720 110 760 175 675 245 720 310 655 375 715 450 650 520 720 590 660 665 735 740 675 805 760" />
+            </circle>
+          </svg>
+        </div>
         {/* Left Hero Brand Panel */}
         <section className="login-brand-panel">
-          {/* Dynamic Ambient Background Elements */}
-          <div className="brand-orb orb-one" />
-          <div className="brand-orb orb-two" />
-          <div className="brand-orb orb-three" />
-          <div className="brand-grid-overlay" />
-
           {/* Top Brand Logo */}
           <div className="login-brand-top">
-            <div className="brand-logo-wrap">
+            <div className="brand-logo-wrap logo-orbit-wrap">
+              <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+              <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
               <img src="/nanospace-logo.png" alt="NanoSpace" />
             </div>
           </div>
@@ -208,15 +279,13 @@ export default function LoginPage() {
               One unified platform for branch operations, smart billing,
               real-time desk bookings and team collaboration across every workspace.
             </p>
-
-            {/* Feature Highlights */}
             <div className="brand-feature-list">
               <div className="feature-item">
                 <span className="feature-icon">
                   <FiTrendingUp />
                 </span>
                 <div className="feature-text">
-                  <strong>Unified Analytics & Billing</strong>
+                  <strong>Unified Analytics &amp; Billing</strong>
                   <small>Automated invoicing and live revenue intelligence</small>
                 </div>
               </div>
@@ -241,14 +310,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Desktop Brand Panel Footer Credit */}
-          <div className="brand-panel-footer">
-            <span>© 2026 NanoSpace Co-working</span>
-            <span className="credit-author">
-              Crafted by <strong>Jawad Hussain</strong> with{" "}
-              <span className="footer-heart">♥</span>
-            </span>
-          </div>
         </section>
 
         {/* Right Form Panel */}
@@ -259,11 +320,15 @@ export default function LoginPage() {
           <div className="login-form-wrap">
             {/* Mobile Logo without Border Box */}
             <div className="mobile-login-logo">
-              <img
-                src="/nanospace-logo.png"
-                alt="NanoSpace"
-                className="mobile-logo-img"
-              />
+              <div className="logo-orbit-wrap mobile-logo-orbit-wrap">
+                <span className="logo-orbit logo-orbit-one" aria-hidden="true" />
+                <span className="logo-orbit logo-orbit-two" aria-hidden="true" />
+                <img
+                  src="/nanospace-logo.png"
+                  alt="NanoSpace"
+                  className="mobile-logo-img"
+                />
+              </div>
             </div>
 
             <div className="login-card-header">
@@ -327,12 +392,7 @@ export default function LoginPage() {
             {infoMsg && (
               <Alert
                 color="success"
-                className="login-error-alert"
-                style={{
-                  background: "#f0fdf4",
-                  color: "#166534",
-                  borderColor: "#bbf7d0",
-                }}
+                className="login-error-alert login-success-alert"
               >
                 <FiCheckCircle className="me-2" />
                 {infoMsg}
@@ -358,7 +418,7 @@ export default function LoginPage() {
                       invalid={Boolean(errors.email)}
                       {...emailInputProps}
                       innerRef={emailRef}
-                      placeholder="name@company.com"
+                      placeholder="Enter your email"
                       autoComplete="username"
                       aria-invalid={Boolean(errors.email)}
                       className="custom-login-input"
@@ -416,7 +476,6 @@ export default function LoginPage() {
                     </small>
                   )}
                 </FormGroup>
-
                 <div className="remember-row">
                   <label className="remember-checkbox-label">
                     <input type="checkbox" defaultChecked className="custom-checkbox" />{" "}
@@ -426,7 +485,6 @@ export default function LoginPage() {
                     <FiShield size={12} /> 256-bit SSL
                   </span>
                 </div>
-
                 <Button
                   type="submit"
                   color="primary"
@@ -474,7 +532,7 @@ export default function LoginPage() {
                           type="email"
                           value={otpEmail}
                           onChange={(e) => setOtpEmail(e.target.value)}
-                          placeholder="name@company.com"
+                          placeholder="Enter your email"
                           autoComplete="email"
                           className="custom-login-input"
                           autoFocus
@@ -629,15 +687,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Responsive Mobile / Tablet Footer Credit */}
-          <footer className="login-page-footer">
-            <span>© 2026 NanoSpace Co-working</span>
-            <span className="footer-sep">•</span>
-            <span className="credit-author">
-              Crafted by <strong>Jawad Hussain</strong> with{" "}
-              <span className="footer-heart">♥</span>
-            </span>
-          </footer>
         </section>
       </div>
     </>

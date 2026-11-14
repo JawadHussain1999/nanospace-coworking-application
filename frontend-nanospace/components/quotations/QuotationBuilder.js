@@ -283,7 +283,7 @@ export default function QuotationBuilder({ user, onSaved }) {
         doc.setTextColor(35, 35, 35);
         doc.text(String(value ?? ''), x, y, align ? { align } : {});
       };
-      const logoResponse = await fetch('/logo.png');
+      const logoResponse = await fetch('/nanospace-quotation-logo.png');
       if (!logoResponse.ok) throw new Error('The NanoSpace quotation logo could not be loaded.');
       const logoBlob = await logoResponse.blob();
       const logo = await new Promise((resolve, reject) => {

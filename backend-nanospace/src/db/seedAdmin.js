@@ -10,8 +10,8 @@ const pool = require('./pool');
     if (!name || !email || !password) {
       throw new Error('ADMIN_NAME, ADMIN_EMAIL, and ADMIN_PASSWORD must be set in .env.');
     }
-    if (password.length < 12) {
-      throw new Error('ADMIN_PASSWORD must be at least 12 characters long.');
+    if (Buffer.byteLength(password, 'utf8') > 72) {
+      throw new Error('ADMIN_PASSWORD must be no more than 72 UTF-8 bytes.');
     }
     const exists = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (exists.rowCount) {

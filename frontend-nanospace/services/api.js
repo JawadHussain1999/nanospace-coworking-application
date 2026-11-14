@@ -164,6 +164,7 @@ export const api = {
   },
   customers: {
     list: (params) => get(endpoints.customers.list, params),
+    lookupGstin: (gstin, config) => get(endpoints.customers.gstinLookup(gstin), undefined, config),
     create: async (body) => {
       const branchId = await resolveBranchId(body.branchId || body.branch);
       const email = String(body.email || '').trim().toLowerCase();
@@ -179,6 +180,8 @@ export const api = {
         companyName: body.companyName || body.company || undefined,
         gstin: body.gstin?.trim().toUpperCase() || undefined,
         panNumber: body.panNumber?.trim().toUpperCase() || undefined,
+        plan: body.plan || undefined,
+        advanceAmount: Number(body.advance_amount ?? body.advanceAmount) || 0,
         branchId,
       };
       return post(endpoints.customers.create, payload);
@@ -194,6 +197,9 @@ export const api = {
         ...(body.panNumber !== undefined ? { panNumber: body.panNumber } : {}),
         ...(body.address !== undefined ? { address: body.address } : {}),
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
+        ...(body.advance_amount !== undefined || body.advanceAmount !== undefined
+          ? { advanceAmount: Number(body.advance_amount ?? body.advanceAmount) || 0 }
+          : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
       };
       return patch(endpoints.customers.update(id), Object.keys(payload).length ? payload : body);
@@ -604,6 +610,8 @@ export function normalizeApiCustomer(customer) {
     phone: customer.phone ?? customer.phoneNumber ?? customer.phone_number ?? '',
     company: customer.company ?? customer.companyName ?? customer.company_name ?? '',
     plan: customer.plan || customer.membership || customer.membershipPlan || 'Dedicated Member',
+    advance_amount: Number(customer.advance_amount ?? customer.advanceAmount ?? 0),
+    customer_advance_amount: Number(customer.customer_advance_amount ?? customer.advance_amount ?? customer.advanceAmount ?? 0),
     branch: formatBranchName(branchName || customer.branchName || customer.branch_name || branchId),
     branchId,
     status: normalizedStatus,
